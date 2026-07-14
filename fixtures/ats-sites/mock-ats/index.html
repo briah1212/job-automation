@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html data-ats="mock" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Application - Mock Company</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Apply for Senior Data Engineer</h1>
+            <p class="company">Mock Company Inc.</p>
+        </div>
+        
+        <div id="page-indicator">Page 1 of 3</div>
+        <div id="progress-bar">
+            <div id="progress-fill" style="width: 33%"></div>
+        </div>
+        
+        <form id="application-form">
+            <!-- Page 1: Personal Info -->
+            <div class="form-page" data-page="1">
+                <h2>Personal Information</h2>
+                
+                <div class="form-group">
+                    <label>First Name *</label>
+                    <input type="text" name="first_name" required placeholder="John">
+                </div>
+                
+                <div class="form-group">
+                    <label>Last Name *</label>
+                    <input type="text" name="last_name" required placeholder="Doe">
+                </div>
+                
+                <div class="form-group">
+                    <label>Email *</label>
+                    <input type="email" name="email" required placeholder="john.doe@example.com">
+                </div>
+                
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="tel" name="phone" placeholder="555-0123">
+                </div>
+                
+                <div class="form-group">
+                    <label>LinkedIn URL</label>
+                    <input type="url" name="linkedin" placeholder="https://linkedin.com/in/yourprofile">
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-primary next-btn">Next →</button>
+                </div>
+            </div>
+            
+            <!-- Page 2: Work Authorization & Resume -->
+            <div class="form-page" data-page="2" style="display:none;">
+                <h2>Work Authorization & Documents</h2>
+                
+                <div class="form-group">
+                    <label>Are you authorized to work in the US? *</label>
+                    <select name="work_authorization" required>
+                        <option value="">Select...</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Resume * (PDF only)</label>
+                    <input type="file" name="resume" accept=".pdf" required>
+                    <small>Upload your resume in PDF format</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Why are you interested in this role?</label>
+                    <textarea name="interest" rows="4" placeholder="Tell us why you're a great fit..."></textarea>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary prev-btn">← Previous</button>
+                    <button type="button" class="btn btn-primary next-btn">Next →</button>
+                </div>
+            </div>
+            
+            <!-- Page 3: Review & Submit -->
+            <div class="form-page" data-page="3" style="display:none;">
+                <h2>Review Your Application</h2>
+                
+                <div id="review-content" class="review-section">
+                    <p>Loading...</p>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="terms" required>
+                        I confirm that all information provided is accurate *
+                    </label>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary prev-btn">← Previous</button>
+                    <button type="submit" id="submit-btn" class="btn btn-success">Submit Application</button>
+                </div>
+            </div>
+        </form>
+        
+        <div id="error-message" class="error" style="display:none;"></div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>

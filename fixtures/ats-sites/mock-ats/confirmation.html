@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html data-ats="mock" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Submitted - Mock Company</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="confirmation">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#28a745" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            
+            <h1>Application Submitted Successfully!</h1>
+            
+            <div class="app-id">
+                Application ID: <span id="app-id">MOCK-12345</span>
+            </div>
+            
+            <p>Thank you for applying to Mock Company Inc.</p>
+            <p>We have received your application for Senior Data Engineer.</p>
+            <p style="margin-top: 20px;">Our team will review your application and get back to you within 5-7 business days.</p>
+            
+            <div style="margin-top: 40px;">
+                <a href="index.html" class="btn btn-primary">Submit Another Application</a>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Get application ID from URL
+        const params = new URLSearchParams(window.location.search);
+        const appId = params.get('id') || 'MOCK-12345';
+        document.getElementById('app-id').textContent = appId;
+        
+        // Store confirmation
+        localStorage.setItem('confirmed_at', new Date().toISOString());
+    </script>
+</body>
+</html>
