@@ -1,0 +1,67 @@
+Next.js Frontend Files Created
+===============================
+
+Configuration Files (8):
+- package.json
+- tsconfig.json
+- next.config.js
+- tailwind.config.ts
+- postcss.config.js
+- .eslintrc.json
+- .gitignore
+- .env.example
+- .env.local
+
+Documentation (2):
+- README.md
+- START.md
+
+App Pages (15):
+- app/layout.tsx
+- app/page.tsx
+- app/globals.css
+- app/dashboard/layout.tsx
+- app/dashboard/page.tsx
+- app/dashboard/profile/page.tsx
+- app/dashboard/resumes/page.tsx
+- app/dashboard/resumes/[id]/page.tsx
+- app/dashboard/jobs/page.tsx
+- app/dashboard/jobs/[id]/page.tsx
+- app/dashboard/applications/page.tsx
+- app/dashboard/applications/[id]/page.tsx
+- app/auth/login/page.tsx
+- app/auth/register/page.tsx
+- app/api/auth/[...nextauth]/route.ts
+
+Components (12):
+- components/ui/button.tsx
+- components/ui/card.tsx
+- components/ui/input.tsx
+- components/ui/label.tsx
+- components/ui/table.tsx
+- components/ui/badge.tsx
+- components/ui/dialog.tsx
+- components/ui/select.tsx
+- components/ui/tabs.tsx
+- components/ui/form.tsx
+- components/layout/sidebar.tsx
+- components/layout/header.tsx
+
+Library Files (4):
+- lib/utils.ts
+- lib/types.ts
+- lib/api-client.ts
+- lib/auth.ts
+
+Deployment:
+- Dockerfile
+
+Total: 42 files created
+
+To Install & Run:
+=================
+cd /home/brian/job_automation/apps/web
+npm install
+npm run dev
+
+Open: http://localhost:3000
