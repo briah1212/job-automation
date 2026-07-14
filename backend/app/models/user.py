@@ -28,3 +28,5 @@ class User(Base):
     jobs = relationship("CanonicalJob", back_populates="user")
     applications = relationship("Application", back_populates="user")
     audit_events = relationship("AuditEvent", back_populates="user")
+    search_profiles = relationship("SearchProfile", back_populates="user", cascade="all, delete-orphan")
+    job_match_scores = relationship("JobMatchScore", back_populates="user", cascade="all, delete-orphan")

@@ -34,7 +34,7 @@ class Profile(ProfileBase):
     """Profile response schema."""
     id: UUID
     user_id: UUID
-    metadata: Dict[str, Any]
+    profile_metadata: Dict[str, Any]
     created_at: datetime
     updated_at: datetime
     

@@ -53,3 +53,4 @@ class CanonicalJob(Base):
     # Relationships
     user = relationship("User", back_populates="jobs")
     applications = relationship("Application", back_populates="job")
+    match_scores = relationship("JobMatchScore", back_populates="job", cascade="all, delete-orphan")

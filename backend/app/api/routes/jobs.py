@@ -102,3 +102,153 @@ def score_job(
     db.commit()
     db.refresh(job)
     return job
+
+
+# Additional imports for matching and resume selection
+from app.agents.matching_agent import MatchingAgent
+from app.agents.resume_selection_agent import ResumeSelectionAgent
+from app.models import JobMatchScore, Profile, ResumeFamily, SearchProfile
+from app.schemas.job_match import JobMatchScore as JobMatchScoreSchema, ResumeSelectionResult
+
+
+@router.post("/{job_id}/match", response_model=JobMatchScoreSchema, status_code=status.HTTP_201_CREATED)
+def calculate_match_score(
+    job_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)]
+) -> JobMatchScore:
+    """Calculate or recalculate match score for a job."""
+    # Get job
+    job = db.query(CanonicalJob).filter(
+        CanonicalJob.id == job_id,
+        CanonicalJob.user_id == current_user.id
+    ).first()
+    
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+    
+    # Get user profile
+    profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User profile not found. Please complete your profile first."
+        )
+    
+    # Get active search profile (use first enabled one)
+    search_profile = db.query(SearchProfile).filter(
+        SearchProfile.user_id == current_user.id,
+        SearchProfile.enabled == True
+    ).first()
+    
+    # Run matching agent
+    agent = MatchingAgent()
+    result = agent.score_job(job, profile, search_profile)
+    
+    # Check if match score exists
+    existing_score = db.query(JobMatchScore).filter(
+        JobMatchScore.job_id == job_id,
+        JobMatchScore.user_id == current_user.id
+    ).first()
+    
+    if existing_score:
+        # Update existing
+        for field, value in result.items():
+            setattr(existing_score, field, value)
+        match_score = existing_score
+    else:
+        # Create new
+        match_score = JobMatchScore(
+            job_id=job_id,
+            user_id=current_user.id,
+            **result
+        )
+        db.add(match_score)
+    
+    db.commit()
+    db.refresh(match_score)
+    return match_score
+
+
+@router.get("/{job_id}/match", response_model=JobMatchScoreSchema)
+def get_match_score(
+    job_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)]
+) -> JobMatchScore:
+    """Get existing match score for a job."""
+    match_score = db.query(JobMatchScore).filter(
+        JobMatchScore.job_id == job_id,
+        JobMatchScore.user_id == current_user.id
+    ).first()
+    
+    if not match_score:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Match score not found. Calculate it first using POST /jobs/{job_id}/match"
+        )
+    
+    return match_score
+
+
+@router.post("/{job_id}/select-resume", response_model=ResumeSelectionResult)
+def select_best_resume(
+    job_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)]
+) -> ResumeSelectionResult:
+    """Select the best resume for this job."""
+    # Get job
+    job = db.query(CanonicalJob).filter(
+        CanonicalJob.id == job_id,
+        CanonicalJob.user_id == current_user.id
+    ).first()
+    
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+    
+    # Get user profile
+    profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User profile not found"
+        )
+    
+    # Get all ready resumes
+    resume_families = db.query(ResumeFamily).filter(
+        ResumeFamily.user_id == current_user.id
+    ).all()
+    
+    resumes = []
+    for family in resume_families:
+        # Get latest version from each family
+        from app.models.resume import ResumeStatus
+        ready_versions = [v for v in family.versions if v.status == ResumeStatus.ready or v.status == ResumeStatus.approved]
+        if ready_versions:
+            # Get most recent
+            latest = max(ready_versions, key=lambda v: v.created_at)
+            resumes.append(latest)
+    
+    # Run resume selection agent
+    agent = ResumeSelectionAgent()
+    result = agent.select_resume(job, resumes, profile)
+    
+    # Update match score with selected resume
+    match_score = db.query(JobMatchScore).filter(
+        JobMatchScore.job_id == job_id,
+        JobMatchScore.user_id == current_user.id
+    ).first()
+    
+    if match_score and result.get("selected_resume_id"):
+        match_score.matched_resume_id = result["selected_resume_id"]
+        match_score.resume_selection_rationale = result["selection_rationale"]
+        db.commit()
+    
+    return ResumeSelectionResult(**result)
