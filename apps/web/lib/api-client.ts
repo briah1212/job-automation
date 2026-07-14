@@ -1,3 +1,16 @@
+import type { 
+  Profile, 
+  Job, 
+  Application, 
+  ResumeFamily, 
+  JobFilters, 
+  SearchProfile, 
+  SearchProfileCreate, 
+  SearchProfileUpdate, 
+  JobMatchScore, 
+  ResumeSelectionResult 
+} from './types'
+
 class APIClient {
   private baseURL: string
 
@@ -146,7 +159,49 @@ class APIClient {
   async submitApplication(id: string) {
     return this.post(`/api/applications/${id}/submit`)
   }
+
+  // Search Profiles
+  async getSearchProfiles() {
+    return this.get<SearchProfile[]>('/api/search-profiles')
+  }
+
+  async getSearchProfile(id: string) {
+    return this.get<SearchProfile>(`/api/search-profiles/${id}`)
+  }
+
+  async createSearchProfile(data: SearchProfileCreate) {
+    return this.post<SearchProfile>('/api/search-profiles', data)
+  }
+
+  async updateSearchProfile(id: string, data: SearchProfileUpdate) {
+    return this.put<SearchProfile>(`/api/search-profiles/${id}`, data)
+  }
+
+  async deleteSearchProfile(id: string) {
+    return this.delete(`/api/search-profiles/${id}`)
+  }
+
+  async toggleSearchProfile(id: string, enabled: boolean) {
+    return this.put<SearchProfile>(`/api/search-profiles/${id}`, { enabled })
+  }
+
+  // Matching
+  async calculateMatchScore(jobId: string) {
+    return this.post<JobMatchScore>(`/api/jobs/${jobId}/match`, {})
+  }
+
+  async getMatchScore(jobId: string) {
+    return this.get<JobMatchScore>(`/api/jobs/${jobId}/match`)
+  }
+
+  async selectResume(jobId: string) {
+    return this.post<ResumeSelectionResult>(`/api/jobs/${jobId}/select-resume`, {})
+  }
+
+  async getResumeSelection(jobId: string) {
+    return this.get<ResumeSelectionResult>(`/api/jobs/${jobId}/resume-selection`)
+  }
 }
 
 export const apiClient = new APIClient()
-export type { Profile, Job, Application, ResumeFamily, JobFilters }
+export type { Profile, Job, Application, ResumeFamily, JobFilters, SearchProfile, SearchProfileCreate, SearchProfileUpdate, JobMatchScore, ResumeSelectionResult }

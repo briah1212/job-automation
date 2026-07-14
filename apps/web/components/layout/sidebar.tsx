@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { 
   LayoutDashboard, 
   User, 
+  Search,
   FileText, 
   Briefcase, 
   Send 
@@ -14,6 +15,7 @@ import {
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Profile', href: '/dashboard/profile', icon: User },
+  { name: 'Search Profiles', href: '/dashboard/search-profiles', icon: Search },
   { name: 'Resumes', href: '/dashboard/resumes', icon: FileText },
   { name: 'Jobs', href: '/dashboard/jobs', icon: Briefcase },
   { name: 'Applications', href: '/dashboard/applications', icon: Send },
