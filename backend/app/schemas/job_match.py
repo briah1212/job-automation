@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -9,21 +9,27 @@ from pydantic import BaseModel, Field
 
 class JobMatchScoreBase(BaseModel):
     """Base job match score schema."""
-    search_profile_id: UUID
     job_id: UUID
     
-    # Match scores (0.0 to 1.0)
-    overall_score: float = Field(..., ge=0.0, le=1.0)
-    title_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    company_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    location_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    salary_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    skills_score: Optional[float] = Field(None, ge=0.0, le=1.0)
+    # Overall score (0-100)
+    overall_score: int = Field(..., ge=0, le=100)
     
-    # Match details
-    matched_skills: List[str] = Field(default_factory=list)
-    missing_skills: List[str] = Field(default_factory=list)
-    match_reasoning: Optional[str] = None
+    # Dimensional scores (0-100)
+    skill_score: float = Field(..., ge=0.0, le=100.0)
+    experience_score: float = Field(..., ge=0.0, le=100.0)
+    seniority_score: float = Field(..., ge=0.0, le=100.0)
+    location_score: float = Field(..., ge=0.0, le=100.0)
+    salary_score: float = Field(..., ge=0.0, le=100.0)
+    
+    # Match analysis
+    hard_blockers: List[Dict[str, Any]] = Field(default_factory=list)
+    strong_matches: List[Dict[str, Any]] = Field(default_factory=list)
+    soft_gaps: List[Dict[str, Any]] = Field(default_factory=list)
+    missing_info: List[Dict[str, Any]] = Field(default_factory=list)
+    
+    # Recommendation
+    recommended_action: str
+    explanation: Optional[str] = None
 
 
 class JobMatchScoreCreate(JobMatchScoreBase):
@@ -33,21 +39,26 @@ class JobMatchScoreCreate(JobMatchScoreBase):
 
 class JobMatchScoreUpdate(BaseModel):
     """Job match score update schema."""
-    overall_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    title_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    company_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    location_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    salary_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    skills_score: Optional[float] = Field(None, ge=0.0, le=1.0)
-    matched_skills: Optional[List[str]] = None
-    missing_skills: Optional[List[str]] = None
-    match_reasoning: Optional[str] = None
+    overall_score: Optional[int] = Field(None, ge=0, le=100)
+    skill_score: Optional[float] = Field(None, ge=0.0, le=100.0)
+    experience_score: Optional[float] = Field(None, ge=0.0, le=100.0)
+    seniority_score: Optional[float] = Field(None, ge=0.0, le=100.0)
+    location_score: Optional[float] = Field(None, ge=0.0, le=100.0)
+    salary_score: Optional[float] = Field(None, ge=0.0, le=100.0)
+    hard_blockers: Optional[List[Dict[str, Any]]] = None
+    strong_matches: Optional[List[Dict[str, Any]]] = None
+    soft_gaps: Optional[List[Dict[str, Any]]] = None
+    missing_info: Optional[List[Dict[str, Any]]] = None
+    recommended_action: Optional[str] = None
+    explanation: Optional[str] = None
 
 
 class JobMatchScore(JobMatchScoreBase):
     """Job match score response schema."""
     id: UUID
     user_id: UUID
+    matched_resume_id: Optional[UUID] = None
+    resume_selection_rationale: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     

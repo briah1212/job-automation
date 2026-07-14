@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import ARRAY, Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -19,36 +19,36 @@ class SearchProfile(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Profile metadata
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
+    name = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False, index=True)
     
-    # Search criteria
-    desired_titles = Column(JSONB, default=list, nullable=False)  # List of job titles
-    desired_companies = Column(JSONB, default=list, nullable=False)  # List of companies
-    desired_locations = Column(JSONB, default=list, nullable=False)  # List of locations
-    remote_preference = Column(String(50), nullable=True)  # e.g., 'remote', 'hybrid', 'onsite'
+    # Search criteria - career categories and titles
+    career_categories = Column(ARRAY(String), default=list, nullable=False)
+    include_titles = Column(ARRAY(String), default=list, nullable=False)
+    exclude_titles = Column(ARRAY(String), default=list, nullable=False)
     
-    # Salary expectations
+    # Skills
+    include_skills = Column(ARRAY(String), default=list, nullable=False)
+    exclude_skills = Column(ARRAY(String), default=list, nullable=False)
+    
+    # Location and remote
+    locations = Column(ARRAY(String), default=list, nullable=False)
+    remote_policy = Column(String, nullable=True)
+    
+    # Salary
     min_salary = Column(Integer, nullable=True)
-    max_salary = Column(Integer, nullable=True)
     
-    # Skills and requirements
-    required_skills = Column(JSONB, default=list, nullable=False)
-    preferred_skills = Column(JSONB, default=list, nullable=False)
-    excluded_keywords = Column(JSONB, default=list, nullable=False)
+    # Employment and seniority
+    employment_types = Column(ARRAY(String), default=list, nullable=False)
+    seniority_levels = Column(ARRAY(String), default=list, nullable=False)
     
-    # Scoring weights (for matching algorithm)
-    title_weight = Column(Float, default=1.0, nullable=False)
-    company_weight = Column(Float, default=0.8, nullable=False)
-    location_weight = Column(Float, default=0.7, nullable=False)
-    salary_weight = Column(Float, default=0.9, nullable=False)
-    skills_weight = Column(Float, default=1.0, nullable=False)
+    # Companies
+    companies = Column(ARRAY(String), default=list, nullable=False)
+    excluded_companies = Column(ARRAY(String), default=list, nullable=False)
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
     # Relationships
     user = relationship("User", back_populates="search_profiles")
-    job_matches = relationship("JobMatchScore", back_populates="search_profile", cascade="all, delete-orphan")

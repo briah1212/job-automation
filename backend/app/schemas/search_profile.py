@@ -9,31 +9,32 @@ from pydantic import BaseModel, Field
 
 class SearchProfileBase(BaseModel):
     """Base search profile schema."""
-    name: str = Field(..., max_length=255)
-    description: Optional[str] = None
-    is_active: bool = True
+    name: str
+    enabled: bool = True
     
-    # Search criteria
-    desired_titles: List[str] = Field(default_factory=list)
-    desired_companies: List[str] = Field(default_factory=list)
-    desired_locations: List[str] = Field(default_factory=list)
-    remote_preference: Optional[str] = Field(None, max_length=50)
+    # Career categories and titles
+    career_categories: List[str] = Field(default_factory=list)
+    include_titles: List[str] = Field(default_factory=list)
+    exclude_titles: List[str] = Field(default_factory=list)
     
-    # Salary expectations
+    # Skills
+    include_skills: List[str] = Field(default_factory=list)
+    exclude_skills: List[str] = Field(default_factory=list)
+    
+    # Location and remote
+    locations: List[str] = Field(default_factory=list)
+    remote_policy: Optional[str] = None
+    
+    # Salary
     min_salary: Optional[int] = None
-    max_salary: Optional[int] = None
     
-    # Skills and requirements
-    required_skills: List[str] = Field(default_factory=list)
-    preferred_skills: List[str] = Field(default_factory=list)
-    excluded_keywords: List[str] = Field(default_factory=list)
+    # Employment and seniority
+    employment_types: List[str] = Field(default_factory=list)
+    seniority_levels: List[str] = Field(default_factory=list)
     
-    # Scoring weights
-    title_weight: float = Field(default=1.0, ge=0.0, le=2.0)
-    company_weight: float = Field(default=0.8, ge=0.0, le=2.0)
-    location_weight: float = Field(default=0.7, ge=0.0, le=2.0)
-    salary_weight: float = Field(default=0.9, ge=0.0, le=2.0)
-    skills_weight: float = Field(default=1.0, ge=0.0, le=2.0)
+    # Companies
+    companies: List[str] = Field(default_factory=list)
+    excluded_companies: List[str] = Field(default_factory=list)
 
 
 class SearchProfileCreate(SearchProfileBase):
@@ -43,31 +44,32 @@ class SearchProfileCreate(SearchProfileBase):
 
 class SearchProfileUpdate(BaseModel):
     """Search profile update schema."""
-    name: Optional[str] = Field(None, max_length=255)
-    description: Optional[str] = None
-    is_active: Optional[bool] = None
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
     
-    # Search criteria
-    desired_titles: Optional[List[str]] = None
-    desired_companies: Optional[List[str]] = None
-    desired_locations: Optional[List[str]] = None
-    remote_preference: Optional[str] = Field(None, max_length=50)
+    # Career categories and titles
+    career_categories: Optional[List[str]] = None
+    include_titles: Optional[List[str]] = None
+    exclude_titles: Optional[List[str]] = None
     
-    # Salary expectations
+    # Skills
+    include_skills: Optional[List[str]] = None
+    exclude_skills: Optional[List[str]] = None
+    
+    # Location and remote
+    locations: Optional[List[str]] = None
+    remote_policy: Optional[str] = None
+    
+    # Salary
     min_salary: Optional[int] = None
-    max_salary: Optional[int] = None
     
-    # Skills and requirements
-    required_skills: Optional[List[str]] = None
-    preferred_skills: Optional[List[str]] = None
-    excluded_keywords: Optional[List[str]] = None
+    # Employment and seniority
+    employment_types: Optional[List[str]] = None
+    seniority_levels: Optional[List[str]] = None
     
-    # Scoring weights
-    title_weight: Optional[float] = Field(None, ge=0.0, le=2.0)
-    company_weight: Optional[float] = Field(None, ge=0.0, le=2.0)
-    location_weight: Optional[float] = Field(None, ge=0.0, le=2.0)
-    salary_weight: Optional[float] = Field(None, ge=0.0, le=2.0)
-    skills_weight: Optional[float] = Field(None, ge=0.0, le=2.0)
+    # Companies
+    companies: Optional[List[str]] = None
+    excluded_companies: Optional[List[str]] = None
 
 
 class SearchProfile(SearchProfileBase):
