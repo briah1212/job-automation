@@ -17,7 +17,8 @@ import type {
   DocumentLock,
   ApplicationQuestionWithAnswer,
   ReusableAnswer,
-  ApplicationReviewResult
+  ApplicationReviewResult,
+  CoverLetter
 } from './types'
 
 class APIClient {
@@ -50,7 +51,9 @@ class APIClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }))
-      throw new Error(error.detail || 'Request failed')
+      const err = new Error(error.detail || 'Request failed') as Error & { status?: number }
+      err.status = response.status
+      throw err
     }
 
     return response.json()
@@ -284,6 +287,19 @@ class APIClient {
 
   async getReviewResult(applicationId: string) {
     return this.get<ApplicationReviewResult>(`/api/applications/${applicationId}/review-result`)
+  }
+
+  // Cover Letter
+  async generateCoverLetter(applicationId: string, options?: { tone?: string; word_limit?: number }) {
+    return this.post<CoverLetter>(`/api/applications/${applicationId}/cover-letter`, options || {})
+  }
+
+  async getCoverLetter(applicationId: string) {
+    return this.get<CoverLetter>(`/api/applications/${applicationId}/cover-letter`)
+  }
+
+  async updateCoverLetter(applicationId: string, content: string) {
+    return this.patch<CoverLetter>(`/api/applications/${applicationId}/cover-letter`, { content })
   }
 }
 

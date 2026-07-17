@@ -311,3 +311,17 @@ export interface ApplicationReviewResult {
   recommended_correction?: string
   created_at: string
 }
+
+export interface CoverLetter {
+  id: string
+  application_id: string
+  content: string
+  tone?: string
+  word_limit?: number
+  word_count?: number
+  status: "needs_review" | "approved"
+  warnings: string[]
+  claim_provenance: Array<{ profile_fact_id: string; explanation: string }>
+  created_at: string
+  updated_at: string
+}

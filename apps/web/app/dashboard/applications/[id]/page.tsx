@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { CheckCircle, Briefcase, FileText, Loader2, Sparkles } from 'lucide-react'
 import { QuestionList } from '@/components/applications/question-list'
 import { ReviewFindings } from '@/components/applications/review-findings'
+import { CoverLetterCard } from '@/components/applications/cover-letter-card'
 import { apiClient } from '@/lib/api-client'
 import type {
   Application,
@@ -299,16 +300,7 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Cover Letter</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground italic">
-                Cover letter generation is not implemented yet.
-              </p>
-            </CardContent>
-          </Card>
+          <CoverLetterCard applicationId={application.id} />
         </div>
 
         <div className="space-y-6">
