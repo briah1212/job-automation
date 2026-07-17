@@ -45,6 +45,8 @@ class ResumeTailoring(BaseModel):
     claim_provenance: list[dict] = Field(default_factory=list)
     keyword_coverage: dict[str, bool] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+    page_count_estimate: int = 1
+    quality_score: float = 0.0
 
 
 class ReviewResult(BaseModel):

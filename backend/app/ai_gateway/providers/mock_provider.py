@@ -51,18 +51,35 @@ class MockProvider(AIProvider):
         prompt_lower = prompt.lower()
         schema_title = schema.get("title", "")
         
-        # Return appropriate mock data based on schema type
-        if "ExtractedJob" in schema_title or "extract" in prompt_lower:
+        # Prefer an exact schema-title match first (this is always available when
+        # called via AIGateway.generate_structured, since it derives the title from
+        # the requested Pydantic schema). Only fall back to scanning the prompt for
+        # keywords when no schema title is provided, so that unrelated keywords
+        # appearing incidentally within a prompt (e.g. "matched keywords: ...") don't
+        # cause the wrong mock payload to be returned for a different schema.
+        if "ExtractedJob" in schema_title:
             return self._mock_extracted_job(prompt)
-        elif "JobClassification" in schema_title or "classify" in prompt_lower:
+        elif "JobClassification" in schema_title:
             return self._mock_job_classification(prompt)
-        elif "MatchScore" in schema_title or "match" in prompt_lower or "score" in prompt_lower:
+        elif "MatchScore" in schema_title:
             return self._mock_match_score(prompt)
-        elif "ResumeSelection" in schema_title or "select resume" in prompt_lower:
+        elif "ResumeSelection" in schema_title:
             return self._mock_resume_selection(prompt)
-        elif "ResumeTailoring" in schema_title or "tailor" in prompt_lower:
+        elif "ResumeTailoring" in schema_title:
             return self._mock_resume_tailoring(prompt)
-        elif "ReviewResult" in schema_title or "review" in prompt_lower:
+        elif "ReviewResult" in schema_title:
+            return self._mock_review_result(prompt)
+        elif "extract" in prompt_lower:
+            return self._mock_extracted_job(prompt)
+        elif "classify" in prompt_lower:
+            return self._mock_job_classification(prompt)
+        elif "match" in prompt_lower or "score" in prompt_lower:
+            return self._mock_match_score(prompt)
+        elif "select resume" in prompt_lower:
+            return self._mock_resume_selection(prompt)
+        elif "tailor" in prompt_lower:
+            return self._mock_resume_tailoring(prompt)
+        elif "review" in prompt_lower:
             return self._mock_review_result(prompt)
         else:
             return {"status": "success", "message": "Mock JSON response"}
