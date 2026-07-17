@@ -95,8 +95,8 @@ async def auto_review_application(
     review = ApplicationReview(
         application_id=application.id,
         passed=result["passed"],
-        blocking_findings=[{"message": finding} for finding in result["blocking_findings"]],
-        warnings=[{"message": warning} for warning in result["warnings"]],
+        blocking_findings=result["blocking_findings"],
+        warnings=result["warnings"],
         confidence=result["confidence"],
         recommended_correction=result["recommended_correction"],
     )

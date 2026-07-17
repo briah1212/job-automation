@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -15,8 +15,8 @@ class ApplicationReviewResultBase(BaseModel):
     human approval action rather than an automated compliance review record.
     """
     passed: bool
-    blocking_findings: List[Dict[str, Any]] = Field(default_factory=list)
-    warnings: List[Dict[str, Any]] = Field(default_factory=list)
+    blocking_findings: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
     confidence: float
     recommended_correction: Optional[str] = None
 
