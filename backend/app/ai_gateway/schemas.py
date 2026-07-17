@@ -49,6 +49,12 @@ class ResumeTailoring(BaseModel):
     quality_score: float = 0.0
 
 
+class CoverLetterDraft(BaseModel):
+    content: str
+    word_count: int
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ReviewResult(BaseModel):
     passed: bool
     blocking_findings: list[str] = Field(default_factory=list)

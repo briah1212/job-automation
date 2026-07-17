@@ -58,3 +58,4 @@ class Application(Base):
     user = relationship("User", back_populates="applications")
     job = relationship("CanonicalJob", back_populates="applications")
     resume_version = relationship("ResumeVersion", back_populates="applications")
+    cover_letters = relationship("CoverLetter", back_populates="application", cascade="all, delete-orphan")

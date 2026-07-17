@@ -69,6 +69,8 @@ class MockProvider(AIProvider):
             return self._mock_resume_tailoring(prompt)
         elif "ReviewResult" in schema_title:
             return self._mock_review_result(prompt)
+        elif "CoverLetterDraft" in schema_title:
+            return self._mock_cover_letter(prompt)
         elif "extract" in prompt_lower:
             return self._mock_extracted_job(prompt)
         elif "classify" in prompt_lower:
@@ -223,6 +225,26 @@ class MockProvider(AIProvider):
             "warnings": []
         }
     
+    def _mock_cover_letter(self, prompt: str) -> dict:
+        """Return mock cover letter draft"""
+        content = (
+            "Dear Hiring Manager,\n\n"
+            "I am writing to apply for this role. In my previous position, I built "
+            "real-time data pipelines that processed millions of events per day, "
+            "which directly relates to the scalable systems work described in this "
+            "opening. I also led efforts to optimize data warehouse performance, "
+            "experience that maps closely to the team's stated need for reliable, "
+            "high-throughput infrastructure.\n\n"
+            "I would welcome the chance to discuss how my background could "
+            "contribute to your team.\n\n"
+            "Sincerely,\n[Name]"
+        )
+        return {
+            "content": content,
+            "word_count": len(content.split()),
+            "warnings": []
+        }
+
     def _mock_review_result(self, prompt: str) -> dict:
         """Return mock review result"""
         return {

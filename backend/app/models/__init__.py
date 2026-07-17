@@ -5,6 +5,7 @@ from app.models.application_answer import ApplicationAnswer, ApplicationAnswerSo
 from app.models.application_question import ApplicationQuestion
 from app.models.application_review import ApplicationReview
 from app.models.audit import AuditEvent
+from app.models.cover_letter import CoverLetter
 from app.models.document_lock import DocumentLock
 from app.models.document_rendering import DocumentRendering
 from app.models.job import CanonicalJob, JobStatus
@@ -39,6 +40,7 @@ __all__ = [
     "ProfileFact",
     "ResumeClaim",
     "ResumeClaimSource",
+    "CoverLetter",
     "DocumentRendering",
     "DocumentLock",
     "ReusableAnswer",
