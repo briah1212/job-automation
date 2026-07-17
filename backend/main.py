@@ -3,7 +3,19 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import applications, auth, jobs, profile, resumes, search_profiles, workflows
+from app.api.routes import (
+    application_questions,
+    application_review,
+    applications,
+    auth,
+    jobs,
+    profile,
+    resume_rendering,
+    resume_tailoring,
+    resumes,
+    search_profiles,
+    workflows,
+)
 from app.core.config import settings
 
 app = FastAPI(
@@ -24,8 +36,13 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 app.include_router(profile.router, prefix="/api")
 app.include_router(resumes.router, prefix="/api")
+app.include_router(resume_tailoring.router, prefix="/api")
+app.include_router(resume_rendering.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(applications.router, prefix="/api")
+app.include_router(application_questions.router, prefix="/api")
+app.include_router(application_questions.answers_router, prefix="/api")
+app.include_router(application_review.router, prefix="/api")
 app.include_router(search_profiles.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 

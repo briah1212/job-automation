@@ -8,12 +8,12 @@ from sqlalchemy.orm import sessionmaker
 from app.core.database import Base, get_db
 from main import app
 
-# Use in-memory SQLite for tests
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+# Use a dedicated Postgres test database (reachable at the `postgres` service on the
+# Docker network). SQLite cannot compile Postgres-specific types used by Phase 3 models
+# (JSONB, ARRAY), so tests must run against real Postgres.
+SQLALCHEMY_DATABASE_URL = "postgresql://postgres:postgres@postgres:5432/job_automation_test"
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
