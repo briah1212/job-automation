@@ -65,3 +65,4 @@ class ResumeVersion(Base):
     family = relationship("ResumeFamily", back_populates="versions")
     parent = relationship("ResumeVersion", remote_side=[id], backref="children")
     applications = relationship("Application", back_populates="resume_version")
+    claims = relationship("ResumeClaim", back_populates="resume_version", cascade="all, delete-orphan")
