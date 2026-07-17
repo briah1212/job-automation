@@ -67,12 +67,21 @@ This was deliberately designed so that a future migration to real Temporal would
 - 18/18 backend tests passing, and a full API integration test passing.
 - Committed as `335bb18` and pushed to GitHub.
 
+### Phase 3 - Tailoring and Review (complete, 2026-07-17)
+
+- Data model: `ProfileFact` (granular, provenance-tracked facts extracted from resumes/profile), `ResumeClaim`/`ResumeClaimSource` (per-bullet provenance linking generated resume text back to facts), `DocumentRendering`/`DocumentLock` (rendered PDF artifacts and user-lockable fields), `ApplicationQuestion`/`ApplicationAnswer`/`ApplicationAnswerSource` (normalized Q&A, replacing the old JSONB blob), `ReusableAnswer` (approved-answer knowledge base), `ApplicationReview` (automated review results).
+- `ResumeTailoringAgent`: builds a requirement-evidence matrix (job requirements matched against verified profile facts, with strength scores and fact text shown), calls the AI gateway to draft a tailored resume variant, enforces user-set locks (exact title/dates/protected accomplishments) by reverting any locked field the AI tries to change, and records per-claim provenance.
+- Resume rendering (PDF via reportlab), a diff viewer (added/removed/reordered content, keyword and summary changes, warnings), and field locks - all exposed via `POST /api/resumes/{id}/tailor`, `POST /api/resumes/{id}/render`, `GET /api/resumes/{id}/diff`, `POST/GET /api/resumes/families/{id}/locks`.
+- `ApplicationQuestionAgent`: implements the spec's strict answer precedence (exact/canonical reusable answer -> deterministic calculation -> AI-generated from verified facts only -> require user input), a deterministic years-of-experience calculator (never guesses if dates can't be parsed), and hard-blocks guessing on high-risk questions (work authorization, sponsorship, etc.).
+- `ApplicationReviewAgent`: an 18-point-style checklist (missing resume, unanswered high-risk questions, placeholder text, malformed dates, duplicate applications, wrong-company heuristics) plus one AI call using a deliberately separate prompt from the tailoring agent, per the spec's independence requirement.
+- Frontend: real resume detail page (requirement-evidence matrix, diff viewer, lock management), real application review workspace (question generation, inline answer editing with source labels, review findings with pass/fail and confidence), and the resumes/applications list pages now show real data instead of Phase 1's hardcoded mocks.
+- Also fixed while verifying this phase: the entire browser-based auth flow was non-functional (wrong login request shape/target, missing CORS origin, no JWT ever attached to API calls, no dashboard route guard, no `SessionProvider`) - all repaired and verified via both curl and a real browser walkthrough.
+
 ## What's Next
 
 The following phases are defined in `spec.md` section 27 but have not been started.
 Consult that section for full detail before starting any of them.
 
-- **Phase 3 - Tailoring and Review**: requirement-evidence matrix, a resume tailoring pipeline with provenance tracking, resume PDF/DOCX rendering, a resume diff viewer, application-question generation, a reusable-answer knowledge base, an independent Application Review Agent, and an Application Review Workspace UI.
 - **Phase 4 - Browser-Assisted Applications**: a real generic ATS adapter that goes beyond the mock, field mapping and learning, resume upload through the browser, a manual takeover UI, submission preview, and confirmation capture.
   Note that some pieces (checkpoints, the mock adapter) already exist from Phase 1's vertical slice.
   Phase 4's job is to generalize that beyond the mock site.
@@ -107,6 +116,18 @@ Read this before touching the related code so they don't get reintroduced.
    This annotation was removed from the search-profiles delete route.
 7. **Deploy target had only Podman, not Docker**: the original deploy target ("bhead" / hostname `kn-head`) only had Podman available, which forced the use of `podman-compose` everywhere.
    This is not relevant now that development runs on Docker Desktop locally, but `setup-portable.sh` still auto-detects `docker compose`, `podman-compose`, or `docker-compose`, in that priority order, in case this ever needs to run on another Podman-only host again.
+8. **Auth was completely non-functional through the browser** (found and fixed 2026-07-17, while verifying Phase 3): NextAuth's login call POSTed JSON to the wrong internal URL when the backend actually requires a form-urlencoded `OAuth2PasswordRequestForm`; CORS didn't allow the actual web port (3002); `api-client.ts` never attached a bearer token to any request; the dashboard had no route guard; and the app had no `SessionProvider` at all, which NextAuth's client-side session management needs to behave correctly. All fixed together - see commit `47a9125`.
+9. **Automated review findings crashed the application review page permanently**: the backend wrapped each finding as `{"message": str}` to satisfy an overly-strict Pydantic schema, but the frontend (correctly) typed these as `string[]` and rendered them directly, throwing "Objects are not valid as a React child." Since the page auto-fetches the stored review on mount, this broke the page on every subsequent load, not just the button click. Fixed by making the schema `List[str]` end to end - see commit `193a995`.
+
+## Known Remaining Gaps (not blocking, but worth knowing)
+
+- The dashboard home page (`/dashboard`) still shows Phase 1's hardcoded mock stats and job cards - it was never wired to real data in any phase so far.
+- There's no background worker to actually parse uploaded resumes or extract job postings - `parsed_data`/`extracted_data` stay empty after upload/import, so the tailoring pipeline has nothing real to work with until this exists. This blocks a fully realistic end-to-end walkthrough through the UI alone (verification required seeding `parsed_data` directly via SQL).
+- No file-download/static-serving mechanism exists for rendered resume PDFs - `POST /api/resumes/{id}/render` writes a real file and returns its path, but there's no way to actually download it from the browser yet.
+- No cover-letter generation exists - the review workspace shows a clearly-labeled placeholder instead.
+- Minor: `GET /api/resumes/{id}` (singular, by id) doesn't exist on the backend - the resume detail page calls it once for family metadata and silently no-ops on the 404; harmless but should either get a real endpoint or have the dead call removed.
+- Minor: blank high-risk answers awaiting user input are labeled "Your edit" in the question list, which reads as if the user already typed something - worth a distinct label for "needs your input" vs. "you edited this."
+- Minor: the "View Resume" link on the application review page uses the resume's `family_id` instead of its `id`, so it currently links to a URL the resume detail page can't resolve.
 
 ## Current Local Environment Status (as of this handoff)
 
