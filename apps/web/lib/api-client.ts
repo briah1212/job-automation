@@ -1,3 +1,4 @@
+import { getSession } from 'next-auth/react'
 import type {
   Profile,
   Job,
@@ -31,11 +32,17 @@ class APIClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${path}`
-    
+
+    const session = await getSession()
+    const authHeader: Record<string, string> = session?.accessToken
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
+
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...authHeader,
         ...options.headers,
       },
       credentials: 'include',
@@ -114,8 +121,14 @@ class APIClient {
     formData.append('file', file)
     formData.append('family', family)
 
+    const session = await getSession()
+    const authHeader: Record<string, string> = session?.accessToken
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
+
     const response = await fetch(`${this.baseURL}/api/resumes/upload`, {
       method: 'POST',
+      headers: authHeader,
       body: formData,
       credentials: 'include',
     })

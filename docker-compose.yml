@@ -102,6 +102,7 @@ services:
     container_name: job_automation_web
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8001
+      API_URL: http://api:8000
       NEXTAUTH_SECRET: dev-secret-change-in-production
       NEXTAUTH_URL: http://localhost:3002
     ports:
