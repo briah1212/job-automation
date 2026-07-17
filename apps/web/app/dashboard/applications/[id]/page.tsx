@@ -55,10 +55,10 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
                   <Badge variant="outline" className="text-xs">low risk</Badge>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  I'm excited about the opportunity to work on Google Search infrastructure because
+                  I&apos;m excited about the opportunity to work on Google Search infrastructure because
                   it aligns perfectly with my experience in building large-scale distributed systems.
                   During my time at [Previous Company], I led similar initiatives that improved system
-                  reliability by 40%, and I'm eager to apply those learnings at Google's scale.
+                  reliability by 40%, and I&apos;m eager to apply those learnings at Google&apos;s scale.
                 </p>
               </div>
 
@@ -76,15 +76,15 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
 
               <div className="space-y-2">
                 <div className="flex items-start justify-between">
-                  <div className="font-medium text-sm">What's your salary expectation?</div>
+                  <div className="font-medium text-sm">What&apos;s your salary expectation?</div>
                   <Badge variant="secondary" className="text-xs">
                     <AlertTriangle className="mr-1 h-3 w-3" />
                     medium risk
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Based on my experience and the role's requirements, I'm targeting $200-230K base salary.
-                  I'm flexible and open to discussing the complete compensation package.
+                  Based on my experience and the role&apos;s requirements, I&apos;m targeting $200-230K base salary.
+                  I&apos;m flexible and open to discussing the complete compensation package.
                 </p>
               </div>
             </CardContent>
@@ -98,8 +98,8 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
               <p className="text-sm text-muted-foreground">
                 Dear Hiring Manager,
                 <br /><br />
-                I'm writing to express my interest in the Senior Software Engineer position at Google.
-                With over 6 years of experience building large-scale distributed systems, I'm excited
+                I&apos;m writing to express my interest in the Senior Software Engineer position at Google.
+                With over 6 years of experience building large-scale distributed systems, I&apos;m excited
                 about the opportunity to contribute to Google Search infrastructure...
                 <br /><br />
                 [Full letter would continue here]

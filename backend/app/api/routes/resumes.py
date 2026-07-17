@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.models import ResumeFamily, ResumeStatus, ResumeVersion
 from app.schemas import ResumeUpload
 from app.schemas.resume import ResumeFamily as ResumeFamilySchema
+from app.schemas.resume import ResumeVersion as ResumeVersionSchema
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
 
@@ -26,6 +27,22 @@ def list_resumes(
         ResumeFamily.user_id == current_user.id
     ).order_by(ResumeFamily.created_at.desc()).all()
     return families
+
+
+@router.get("/versions", response_model=list[ResumeVersionSchema])
+def list_resume_versions(
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)]
+) -> list[ResumeVersion]:
+    """List all resume versions for current user, across all families."""
+    versions = (
+        db.query(ResumeVersion)
+        .join(ResumeFamily, ResumeVersion.family_id == ResumeFamily.id)
+        .filter(ResumeFamily.user_id == current_user.id)
+        .order_by(ResumeVersion.created_at.desc())
+        .all()
+    )
+    return versions
 
 
 @router.post("", response_model=ResumeUpload, status_code=status.HTTP_201_CREATED)

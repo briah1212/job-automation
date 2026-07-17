@@ -103,13 +103,9 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8001
       NEXTAUTH_SECRET: dev-secret-change-in-production
-      NEXTAUTH_URL: http://localhost:3000
-    volumes:
-      - ./apps/web:/app
-      - /app/node_modules
-      - /app/.next
+      NEXTAUTH_URL: http://localhost:3002
     ports:
-      - "3000:3000"
+      - "3002:3000"
     depends_on:
       - api
     networks:

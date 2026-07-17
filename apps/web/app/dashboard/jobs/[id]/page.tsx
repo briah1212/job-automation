@@ -73,7 +73,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         setLoadingResumes(true)
         const [selectionData, resumesData] = await Promise.all([
           apiClient.getResumeSelection(params.id),
-          apiClient.getResumes()
+          apiClient.getResumeVersions()
         ])
         setResumeSelection(selectionData)
         setResumes(resumesData)

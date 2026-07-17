@@ -13,7 +13,7 @@ make start
 
 # Access
 # Web:      http://localhost:3000
-# API Docs: http://localhost:8000/docs
+# API Docs: http://localhost:8001/docs
 # Mock ATS: http://localhost:8080
 ```
 
