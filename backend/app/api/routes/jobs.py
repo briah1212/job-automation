@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser
 from app.core.database import get_db
-from app.models import CanonicalJob, JobStatus
+from app.models import CanonicalJob, JobStatus, WorkflowStatus, WorkflowTask
 from app.schemas import JobCreate, JobImportUrl, JobScore
 from app.schemas.job import Job as JobSchema
 
@@ -72,9 +72,16 @@ def import_job_from_url(
     db.add(job)
     db.commit()
     db.refresh(job)
-    
-    # TODO: Trigger extraction workflow
-    
+
+    # Enqueue a job-extraction workflow task for the background worker to pick up.
+    workflow_task = WorkflowTask(
+        workflow_type="job_extraction",
+        entity_id=job.id,
+        status=WorkflowStatus.pending
+    )
+    db.add(workflow_task)
+    db.commit()
+
     return job
 
 

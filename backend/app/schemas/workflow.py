@@ -27,7 +27,7 @@ class WorkflowTask(WorkflowTaskBase):
     current_step: Optional[str]
     retry_count: int
     error: Optional[str]
-    metadata: Dict[str, Any]
+    task_metadata: Dict[str, Any]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
     created_at: datetime
