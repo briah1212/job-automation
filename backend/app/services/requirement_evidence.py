@@ -114,6 +114,7 @@ def build_requirement_evidence_matrix(
                 evidence.append(
                     {
                         "profile_fact_id": str(fact.id),
+                        "fact_content": fact.content,
                         "strength": round(strength, 4),
                         "explanation": explanation,
                     }
