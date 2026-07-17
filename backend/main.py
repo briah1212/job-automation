@@ -8,6 +8,7 @@ from app.api.routes import (
     application_review,
     applications,
     auth,
+    cover_letter,
     jobs,
     profile,
     resume_rendering,
@@ -43,6 +44,7 @@ app.include_router(applications.router, prefix="/api")
 app.include_router(application_questions.router, prefix="/api")
 app.include_router(application_questions.answers_router, prefix="/api")
 app.include_router(application_review.router, prefix="/api")
+app.include_router(cover_letter.router, prefix="/api")
 app.include_router(search_profiles.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 
