@@ -1,14 +1,22 @@
-import type { 
-  Profile, 
-  Job, 
-  Application, 
-  ResumeFamily, 
-  JobFilters, 
-  SearchProfile, 
-  SearchProfileCreate, 
-  SearchProfileUpdate, 
-  JobMatchScore, 
-  ResumeSelectionResult 
+import type {
+  Profile,
+  Job,
+  Application,
+  ResumeFamily,
+  ResumeVersion,
+  JobFilters,
+  SearchProfile,
+  SearchProfileCreate,
+  SearchProfileUpdate,
+  JobMatchScore,
+  ResumeSelectionResult,
+  ResumeTailorResponse,
+  ResumeDiff,
+  DocumentRendering,
+  DocumentLock,
+  ApplicationQuestionWithAnswer,
+  ReusableAnswer,
+  ApplicationReviewResult
 } from './types'
 
 class APIClient {
@@ -59,6 +67,13 @@ class APIClient {
     })
   }
 
+  async patch<T>(path: string, data: any): Promise<T> {
+    return this.request<T>(path, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  }
+
   async delete<T>(path: string): Promise<T> {
     return this.request<T>(path, { method: 'DELETE' })
   }
@@ -84,6 +99,10 @@ class APIClient {
   // Resumes
   async getResumes() {
     return this.get<ResumeFamily[]>('/api/resumes')
+  }
+
+  async getResumeVersions() {
+    return this.get<ResumeVersion[]>('/api/resumes/versions')
   }
 
   async getResume(id: string) {
@@ -200,6 +219,58 @@ class APIClient {
 
   async getResumeSelection(jobId: string) {
     return this.get<ResumeSelectionResult>(`/api/jobs/${jobId}/resume-selection`)
+  }
+
+  // Resume Tailoring
+  async tailorResume(resumeVersionId: string, jobId: string) {
+    return this.post<ResumeTailorResponse>(`/api/resumes/${resumeVersionId}/tailor`, { job_id: jobId })
+  }
+
+  async getResumeDiff(resumeVersionId: string, baseVersionId: string) {
+    return this.get<ResumeDiff>(`/api/resumes/${resumeVersionId}/diff?base_version_id=${baseVersionId}`)
+  }
+
+  async renderResume(resumeVersionId: string, format: "pdf" | "docx" = "pdf") {
+    return this.post<DocumentRendering>(`/api/resumes/${resumeVersionId}/render`, { format })
+  }
+
+  async createResumeLock(familyId: string, lock: { lock_type: string; target_ref: string; value?: Record<string, any> }) {
+    return this.post<DocumentLock>(`/api/resumes/families/${familyId}/locks`, lock)
+  }
+
+  async getResumeLocks(familyId: string) {
+    return this.get<DocumentLock[]>(`/api/resumes/families/${familyId}/locks`)
+  }
+
+  // Application Q&A
+  async generateApplicationQA(applicationId: string) {
+    return this.post<ApplicationQuestionWithAnswer[]>(`/api/applications/${applicationId}/generate`)
+  }
+
+  async getApplicationQuestions(applicationId: string) {
+    return this.get<ApplicationQuestionWithAnswer[]>(`/api/applications/${applicationId}/questions`)
+  }
+
+  async updateApplicationAnswer(applicationId: string, questionId: string, answerText: string) {
+    return this.patch<ApplicationQuestionWithAnswer>(`/api/applications/${applicationId}/questions/${questionId}`, { answer_text: answerText })
+  }
+
+  // Reusable Answers
+  async createReusableAnswer(data: { canonical_question: string; semantic_variants?: string[]; exact_answer: string; allowed_paraphrasing?: boolean; risk_level: string; categories?: string[] }) {
+    return this.post<ReusableAnswer>('/api/answers', data)
+  }
+
+  async approveReusableAnswer(answerId: string) {
+    return this.post<ReusableAnswer>(`/api/answers/${answerId}/approve`)
+  }
+
+  // Application Review
+  async autoReviewApplication(applicationId: string) {
+    return this.post<ApplicationReviewResult>(`/api/applications/${applicationId}/auto-review`)
+  }
+
+  async getReviewResult(applicationId: string) {
+    return this.get<ApplicationReviewResult>(`/api/applications/${applicationId}/review-result`)
   }
 }
 

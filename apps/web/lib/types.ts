@@ -203,3 +203,111 @@ export interface ResumeSelectionResult {
   tailoring_recommended: boolean
   tailoring_suggestions?: string[]
 }
+
+export interface ProfileFact {
+  id: string
+  user_id: string
+  fact_type: string
+  content: string
+  source_type: string
+  source_identifier?: string
+  original_text?: string
+  confidence: number
+  user_verified: boolean
+  permitted_uses: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface RequirementEvidenceItem {
+  requirement: string
+  importance: "required" | "preferred"
+  evidence: Array<{ profile_fact_id: string; strength: number; explanation: string }>
+  coverage: "strong" | "partial" | "none"
+}
+
+export interface ClaimProvenance {
+  claim_id: string
+  claim_text: string
+  section: string
+  profile_fact_ids: string[]
+}
+
+export interface ResumeTailorResponse {
+  resume_version_id: string
+  requirement_evidence_matrix: RequirementEvidenceItem[]
+  change_log: Array<Record<string, any>>
+  claim_provenance: ClaimProvenance[]
+  keyword_coverage: Record<string, boolean>
+  warnings: string[]
+  page_count: number
+  quality_score: number
+}
+
+export interface ResumeDiff {
+  added: string[]
+  removed: string[]
+  reordered: string[]
+  keyword_changes: { added: string[]; removed: string[] }
+  summary_change: { before: string; after: string; diff_lines: string[] }
+  skills_change: { added: string[]; removed: string[]; reordered: boolean }
+  warnings: string[]
+}
+
+export interface DocumentRendering {
+  id: string
+  resume_version_id: string
+  format: "pdf" | "docx"
+  file_path: string
+  page_count?: number
+  created_at: string
+}
+
+export interface DocumentLock {
+  id: string
+  resume_family_id: string
+  lock_type: string
+  target_ref: string
+  value?: Record<string, any>
+  created_at: string
+}
+
+export interface ApplicationAnswerInfo {
+  answer_text: string
+  source: "exact_approved" | "canonical_approved" | "deterministic" | "ai_generated" | "user_input"
+  approved: boolean
+}
+
+export interface ApplicationQuestionWithAnswer {
+  id: string
+  question_text: string
+  question_type: string
+  risk_level: "low" | "medium" | "high"
+  answer?: ApplicationAnswerInfo | null
+}
+
+export interface ReusableAnswer {
+  id: string
+  user_id: string
+  canonical_question: string
+  semantic_variants: string[]
+  exact_answer: string
+  allowed_paraphrasing: boolean
+  risk_level: "low" | "medium" | "high"
+  categories: string[]
+  expiration_date?: string
+  user_approved: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ApplicationReviewResult {
+  id: string
+  application_id: string
+  passed: boolean
+  blocking_findings: string[]
+  warnings: string[]
+  confidence: number
+  recommended_correction?: string
+  created_at: string
+}
