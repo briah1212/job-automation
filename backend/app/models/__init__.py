@@ -4,7 +4,10 @@ from app.models.application import Application, ApplicationPipelineStatus, Appli
 from app.models.application_answer import ApplicationAnswer, ApplicationAnswerSource
 from app.models.application_question import ApplicationQuestion
 from app.models.application_review import ApplicationReview
+from app.models.ats_credential import AtsCredential, AtsCredentialStatus
 from app.models.audit import AuditEvent
+from app.models.browser_checkpoint import BrowserCheckpoint
+from app.models.browser_session import BrowserPauseReason, BrowserSession, BrowserSessionStatus
 from app.models.cover_letter import CoverLetter
 from app.models.document_lock import DocumentLock
 from app.models.document_rendering import DocumentRendering
@@ -48,4 +51,10 @@ __all__ = [
     "ApplicationAnswer",
     "ApplicationAnswerSource",
     "ApplicationReview",
+    "BrowserSession",
+    "BrowserSessionStatus",
+    "BrowserPauseReason",
+    "BrowserCheckpoint",
+    "AtsCredential",
+    "AtsCredentialStatus",
 ]
