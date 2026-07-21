@@ -338,7 +338,37 @@ class GenericAdapter(ATSAdapter):
         has_password = (await page.query_selector("input[type='password']:visible")) is not None
         has_confirm_password = (await page.query_selector("input[name*='confirm' i][type='password']:visible")) is not None
         has_file_input = (await page.query_selector("input[type='file']:visible")) is not None
+        # A widget offering to "Replace" a file means one was already
+        # attached - the underlying <input type=file> can stay in the DOM
+        # either way (confirmed live against a real Ashby posting), so
+        # has_file_input alone can't distinguish "empty, needs uploading"
+        # from "already uploaded". Without this, resume_upload keeps
+        # re-triggering the same upload forever, and _score_application's
+        # `not has_file_input` gate never passes even once the resume is
+        # genuinely attached - the run never reaches the rest of the form.
+        resume_already_attached = any("replace" in b for b in buttons)
         visible_fields = await page.query_selector_all("input:visible, select:visible, textarea:visible")
+        # Field *presence* alone isn't evidence of readiness to submit - a
+        # single-page application form shows its real "Submit Application"
+        # button from the moment it renders, before a single field has been
+        # touched. Requires actual non-empty values, not just that inputs
+        # exist, as further defense alongside visible_field_count for the
+        # single most dangerous misclassification this adapter can make.
+        has_any_filled_field = await page.evaluate(
+            """() => {
+                const hasTypedValue = Array.from(document.querySelectorAll(
+                    "input:not([type=file]):not([type=checkbox]):not([type=radio]):not([type=hidden]), textarea"
+                )).some(el => el.offsetParent !== null && el.value && el.value.trim().length > 0);
+                if (hasTypedValue) return true;
+                // A review page can legitimately have nothing left but a
+                // consent checkbox (the actual data was filled on earlier
+                // pages, no longer visible) - checking it is itself real
+                // evidence of interaction, not just presence.
+                return Array.from(document.querySelectorAll(
+                    "input[type=checkbox]:checked, input[type=radio]:checked"
+                )).some(el => el.offsetParent !== null);
+            }"""
+        )
 
         unchecked_required_checkbox = False
         for cb in await page.query_selector_all("input[type='checkbox'][required]:visible"):
@@ -355,6 +385,8 @@ class GenericAdapter(ATSAdapter):
             "has_password": has_password,
             "has_confirm_password": has_confirm_password,
             "has_file_input": has_file_input,
+            "resume_already_attached": resume_already_attached,
+            "has_any_filled_field": has_any_filled_field,
             "visible_field_count": len(visible_fields),
             "unchecked_required_checkbox": unchecked_required_checkbox,
             "body_text": body_text,
@@ -425,6 +457,11 @@ class GenericAdapter(ATSAdapter):
         return min(score, 1.0)
 
     def _score_resume_upload(self, s: dict) -> float:
+        if s["resume_already_attached"]:
+            # Re-scoring this as resume_upload once a file is already
+            # attached would just re-trigger the same upload forever,
+            # never advancing to the rest of the form's fields.
+            return 0.0
         score = 0.0
         if s["has_file_input"]:
             score += 0.5
@@ -457,7 +494,14 @@ class GenericAdapter(ATSAdapter):
 
     def _score_application(self, s: dict) -> float:
         score = 0.0
-        if s["visible_field_count"] >= 2 and not s["has_password"] and not s["has_file_input"]:
+        # A file input that's already had a resume attached to it (shows
+        # "Replace" rather than being empty) doesn't disqualify this as a
+        # normal fields-to-fill page - it's just one more field on it,
+        # already done. Confirmed live: without resume_already_attached
+        # here, a real single-page Ashby form could never score as
+        # APPLICATION once its resume field had been filled, since
+        # has_file_input never goes back to False.
+        if s["visible_field_count"] >= 2 and not s["has_password"] and (not s["has_file_input"] or s["resume_already_attached"]):
             score += 0.4
         if any(w in s["url"] for w in ("application", "apply-form")):
             score += 0.1
@@ -497,6 +541,13 @@ class GenericAdapter(ATSAdapter):
             # dangerous mistake this state machine can make, so both must
             # score 0 here rather than fall through to the button/heading
             # heuristics below.
+            return 0.0
+        if not s["has_any_filled_field"]:
+            # Fields existing isn't fields being filled - a single-page
+            # form's real "Submit Application" button is visible from the
+            # moment the page renders, long before anything's been typed,
+            # and a resume being attached doesn't mean the rest of the
+            # form's required fields (name, email, custom questions) are.
             return 0.0
         score = 0.0
         if any(w in b for b in s["buttons"] for w in _SUBMIT_BUTTON_WORDS):
