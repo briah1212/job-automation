@@ -22,6 +22,13 @@ MAX_TRANSITIONS = 40
 MAX_WALL_CLOCK_SECONDS = 900
 MAX_UNKNOWN_STREAK = 3
 
+# run_state_machine's own MAX_WALL_CLOCK_SECONDS check only runs between loop
+# iterations, so it can't bound a single operation that hangs mid-iteration
+# (e.g. a Playwright action stuck past its own internal timeout expectations).
+# This wraps the whole call as a hard backstop - the margin gives the loop's
+# own budget check a chance to fire first in the normal case.
+_HARD_TIMEOUT_SECONDS = MAX_WALL_CLOCK_SECONDS + 120
+
 
 class BrowserWorker:
     """Browser automation state machine.
@@ -84,20 +91,22 @@ class BrowserWorker:
         """Fresh start: navigate to ctx.application_url and run from LANDING."""
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
-            context = await browser.new_context(
-                viewport={"width": 1280, "height": 720},
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            )
-            page = await context.new_page()
             try:
-                logger.info(f"Navigating to {ctx.application_url}")
-                await page.goto(ctx.application_url, wait_until="networkidle", timeout=30000)
-                await dismiss_cookie_consent(page)
-                adapter = await self._detect_adapter(page)
-                logger.info(f"Using adapter: {adapter.get_name()}")
-                return await self.run_state_machine(page, adapter, ctx)
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 720},
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                )
+                try:
+                    page = await context.new_page()
+                    logger.info(f"Navigating to {ctx.application_url}")
+                    await page.goto(ctx.application_url, wait_until="networkidle", timeout=30000)
+                    await dismiss_cookie_consent(page)
+                    adapter = await self._detect_adapter(page)
+                    logger.info(f"Using adapter: {adapter.get_name()}")
+                    return await self._run_state_machine_with_timeout(page, adapter, ctx)
+                finally:
+                    await context.close()
             finally:
-                await context.close()
                 await browser.close()
 
     async def resume(self, ctx: RunContext, approved_for_submit: bool = False) -> dict:
@@ -126,34 +135,48 @@ class BrowserWorker:
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
-            context = await browser.new_context(viewport={"width": 1280, "height": 720})
-            page = await context.new_page()
             try:
-                await page.goto(navigate_url, wait_until="networkidle", timeout=30000)
-                await dismiss_cookie_consent(page)
-                adapter = await self._detect_adapter(page)
+                context = await browser.new_context(viewport={"width": 1280, "height": 720})
+                try:
+                    page = await context.new_page()
+                    await page.goto(navigate_url, wait_until="networkidle", timeout=30000)
+                    await dismiss_cookie_consent(page)
+                    adapter = await self._detect_adapter(page)
 
-                if checkpoint:
-                    checkpoint_state = None
-                    try:
-                        checkpoint_state = BrowserState(checkpoint.step)
-                    except ValueError:
-                        pass
+                    if checkpoint:
+                        checkpoint_state = None
+                        try:
+                            checkpoint_state = BrowserState(checkpoint.step)
+                        except ValueError:
+                            pass
 
-                    if checkpoint_state in REPLAY_RESUME_STATES:
-                        logger.info(f"Replaying checkpoint state {checkpoint_state.value} (page {checkpoint.page_number})")
-                        replay_error = await self._replay_to_checkpoint(page, adapter, checkpoint)
-                        if replay_error:
-                            return {"success": False, "error": replay_error, "session_id": ctx.session_id}
-                        ctx.filled_fields = dict(checkpoint.filled_fields)
-                        ctx.current_page = checkpoint.page_number
-                    else:
-                        logger.info(f"Structural resume from checkpoint state '{checkpoint.step}' - re-detecting fresh")
+                        if checkpoint_state in REPLAY_RESUME_STATES:
+                            logger.info(f"Replaying checkpoint state {checkpoint_state.value} (page {checkpoint.page_number})")
+                            replay_error = await self._replay_to_checkpoint(page, adapter, checkpoint)
+                            if replay_error:
+                                return {"success": False, "error": replay_error, "session_id": ctx.session_id}
+                            ctx.filled_fields = dict(checkpoint.filled_fields)
+                            ctx.current_page = checkpoint.page_number
+                        else:
+                            logger.info(f"Structural resume from checkpoint state '{checkpoint.step}' - re-detecting fresh")
 
-                return await self.run_state_machine(page, adapter, ctx)
+                    return await self._run_state_machine_with_timeout(page, adapter, ctx)
+                finally:
+                    await context.close()
             finally:
-                await context.close()
                 await browser.close()
+
+    async def _run_state_machine_with_timeout(self, page: Page, adapter, ctx: RunContext) -> dict:
+        """Hard backstop around run_state_machine - see _HARD_TIMEOUT_SECONDS."""
+        try:
+            return await asyncio.wait_for(
+                self.run_state_machine(page, adapter, ctx), timeout=_HARD_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            return await self._escalate(
+                page, ctx, PauseReason.REPEATED_FAILURE,
+                f"hard timeout - a single operation exceeded the {_HARD_TIMEOUT_SECONDS}s wall-clock budget",
+            )
 
     async def run_state_machine(self, page: Page, adapter, ctx: RunContext) -> dict:
         """The primary browser control loop: detect state, checkpoint, act, wait, repeat."""
