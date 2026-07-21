@@ -754,6 +754,17 @@ class GenericAdapter(ATSAdapter):
             if result.success:
                 ctx.filled_fields[field.name] = value
 
+        # Only attempt to navigate if there's actually a next/continue
+        # control to click - a single-page form (confirmed live against a
+        # real Ashby posting: every field on one page, no step-by-step
+        # flow) has nothing to advance to, only its final submit control.
+        # Fields are filled either way; let detect_state re-classify
+        # (likely SUBMIT_READY) rather than treating "nothing to click"
+        # as a failure.
+        next_btn = await self._find_button_by_words(page, _NEXT_BUTTON_WORDS)
+        if next_btn is None:
+            return StateHandlerResult(success=True)
+
         nav_result = await self.navigate_next(page)
         if not nav_result.success:
             return StateHandlerResult(success=False, error=f"Failed to advance past application page: {nav_result.error}")
