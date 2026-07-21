@@ -15,6 +15,7 @@ from ..models import (
 from ..state import BrowserState, RunContext, StateHandlerResult
 from ..services.credential_vault_client import get_or_create_credential
 from ..services.field_resolution import compute_form_fingerprint, resolve_field_value
+from ..services.field_visibility import is_genuinely_fillable
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,9 @@ class GenericAdapter(ATSAdapter):
             input_id = await input_elem.get_attribute("id")
 
             if not name and not input_id:
+                continue
+
+            if not await is_genuinely_fillable(input_elem):
                 continue
 
             identifier = name or input_id

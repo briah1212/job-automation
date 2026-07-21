@@ -43,6 +43,14 @@ _DEFAULT_QUESTIONS = [
 _HIGH_RISK_KEYWORDS = [
     "authorized", "authorization", "sponsorship", "sponsor",
     "clearance", "legally", "attest", "certify",
+    # EEO/voluntary self-identification - legally protected demographic
+    # categories. Confirmed as real, named fields (not hypothetical) on
+    # Workday, Greenhouse, Ashby, and Lever during real-ATS validation -
+    # e.g. Ashby's `eeoc_gender`/`eeoc_race`/`eeoc_veteran_status`,
+    # Greenhouse's `hispanic_ethnicity`/`disability_status`, Lever's
+    # `eeo[veteran]`/`eeo[disability]`. Must never be guessed.
+    "race", "ethnicity", "gender", "veteran", "disability",
+    "self-identif", "self identif", "eeo", "hispanic or latino",
 ]
 _MEDIUM_RISK_KEYWORDS = [
     "salary", "compensation", "relocat", "years", "experience",
@@ -68,6 +76,8 @@ def _infer_risk_level(question_text: str) -> str:
 def _infer_question_type(question_text: str) -> str:
     """Best-effort keyword-based question type inference."""
     lowered = question_text.lower()
+    if any(k in lowered for k in ("race", "ethnicity", "gender", "veteran", "disability", "self-identif", "self identif")):
+        return "demographic_self_id"
     if "salary" in lowered or "compensation" in lowered:
         return "salary_expectation"
     if "sponsor" in lowered or "authoriz" in lowered or "visa" in lowered:

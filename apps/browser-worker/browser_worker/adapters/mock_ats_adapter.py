@@ -14,6 +14,7 @@ from ..models import (
 from ..state import BrowserState, RunContext, StateHandlerResult
 from ..services.credential_vault_client import get_or_create_credential
 from ..services.field_resolution import compute_form_fingerprint, resolve_field_value
+from ..services.field_visibility import is_genuinely_fillable
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,16 @@ class MockATSAdapter(ATSAdapter):
         for input_elem in inputs:
             name = await input_elem.get_attribute("name")
             if not name:  # Skip buttons
+                continue
+
+            # Unlike GenericAdapter's `input:visible` selector, this query
+            # only scopes to the visible *page* container, not each input -
+            # check display/visibility per-element too before the honeypot
+            # (near-zero-size) refinement below.
+            if not await input_elem.is_visible():
+                continue
+
+            if not await is_genuinely_fillable(input_elem):
                 continue
 
             input_type = await input_elem.get_attribute("type") or "text"

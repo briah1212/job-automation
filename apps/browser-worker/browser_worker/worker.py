@@ -8,6 +8,8 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from .models import ApplicationData, Checkpoint
 from .adapters import MockATSAdapter, GenericAdapter
 from .services import FormInspector, FieldMapper, CheckpointManager
+from .services.captcha_detection import detect_captcha_challenge
+from .services.cookie_consent import dismiss_cookie_consent
 from .state import BrowserState, PauseReason, RunContext, REPLAY_RESUME_STATES
 
 logging.basicConfig(
@@ -90,6 +92,7 @@ class BrowserWorker:
             try:
                 logger.info(f"Navigating to {ctx.application_url}")
                 await page.goto(ctx.application_url, wait_until="networkidle", timeout=30000)
+                await dismiss_cookie_consent(page)
                 adapter = await self._detect_adapter(page)
                 logger.info(f"Using adapter: {adapter.get_name()}")
                 return await self.run_state_machine(page, adapter, ctx)
@@ -127,6 +130,7 @@ class BrowserWorker:
             page = await context.new_page()
             try:
                 await page.goto(navigate_url, wait_until="networkidle", timeout=30000)
+                await dismiss_cookie_consent(page)
                 adapter = await self._detect_adapter(page)
 
                 if checkpoint:
@@ -159,6 +163,14 @@ class BrowserWorker:
             ctx.transitions += 1
             if ctx.transitions > MAX_TRANSITIONS or (time.monotonic() - ctx.started_at) > MAX_WALL_CLOCK_SECONDS:
                 return await self._escalate(page, ctx, PauseReason.REPEATED_FAILURE, "state machine exceeded transition/time budget")
+
+            # Checked ahead of adapter.detect_state (which has no reason to know
+            # about CAPTCHA vendors) so it fires regardless of which BrowserState
+            # the page would otherwise classify as - no per-adapter duplication,
+            # and the prior state's checkpoint remains the correct resume anchor
+            # (same reasoning as _pause_for_manual_intervention below).
+            if await detect_captcha_challenge(page):
+                return await self._escalate(page, ctx, PauseReason.CAPTCHA, "interactive CAPTCHA challenge detected")
 
             state, confidence = await adapter.detect_state(page)
             logger.info(f"Detected state: {state.value} (confidence={confidence:.2f})")

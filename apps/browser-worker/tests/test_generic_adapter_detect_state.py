@@ -8,6 +8,7 @@ import itertools
 import os
 import pathlib
 import tempfile
+import uuid
 
 import pytest
 from playwright.async_api import async_playwright
@@ -21,11 +22,22 @@ MOCK_ATS_URL = os.environ.get("MOCK_ATS_URL", "http://mock-ats:8080")
 # it's what makes credential-reuse actually testable) - a second signup
 # attempt with an already-used email correctly gets rejected as a duplicate
 # account, so every test that signs up needs its own unique email.
+#
+# The mock-ats container itself is long-lived (a docker-compose service, not
+# restarted per test run), so uniqueness must hold across separate pytest
+# invocations too, not just within one process. A bare itertools.count()
+# resets to 0 every run and looked unique locally, but silently collided
+# with accounts an earlier run had already registered on the same live
+# server - the actual cause of this suite's "passes alone, fails when run
+# with others" flakiness (confirmed by running this file twice in a row
+# with no other tests involved: identical failures both times). The `run
+# id` below makes every process's emails distinct from every other run's.
+_run_id = uuid.uuid4().hex[:12]
 _email_counter = itertools.count()
 
 
 def _unique_email(label: str) -> str:
-    return f"{label}-{next(_email_counter)}@example.com"
+    return f"{label}-{_run_id}-{next(_email_counter)}@example.com"
 
 
 @pytest.fixture

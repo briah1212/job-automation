@@ -166,6 +166,33 @@
                         <input type="url" name="linkedin" placeholder="https://linkedin.com/in/yourprofile">
                     </div>
 
+                    <!-- Honeypot: mirrors a real pattern found on Workday
+                         (data-automation-id="beecatcher") during real-ATS
+                         validation - display:block/visibility:visible so it
+                         passes Playwright's :visible pseudo-class, but a
+                         near-zero box and no associated label, since a real
+                         honeypot exists specifically to never be seen or
+                         filled by a human. Regression-tests the exclusion
+                         in services/field_visibility.py. -->
+                    <input type="text" name="website" data-testid="honeypot" autocomplete="off" tabindex="-1"
+                           style="width:1px; height:0.01px; border:none; padding:0; overflow:hidden; position:absolute; opacity:1; z-index:-1;">
+
+                    <!-- Legitimate near-zero field: mirrors Greenhouse/Ashby's
+                         pattern of a custom-styled widget sitting on top of a
+                         visually-suppressed native control that still carries
+                         a real <label for>. Must NOT be excluded by the same
+                         honeypot filter above - label-discoverability is what
+                         tells the two apart. -->
+                    <div class="form-group">
+                        <label for="pronouns-native">Pronouns (optional)</label>
+                        <select id="pronouns-native" name="pronouns" style="width:3px; height:1px; overflow:hidden;">
+                            <option value="">Select...</option>
+                            <option value="she_her">She/Her</option>
+                            <option value="he_him">He/Him</option>
+                            <option value="they_them">They/Them</option>
+                        </select>
+                    </div>
+
                     <div class="form-actions">
                         <button type="button" class="btn btn-primary next-btn">Next &rarr;</button>
                     </div>

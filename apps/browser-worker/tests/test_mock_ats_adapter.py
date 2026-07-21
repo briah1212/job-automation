@@ -7,6 +7,7 @@ in the Phase 3 refactor) and assumed the old single-stage fixture layout
 """
 import os
 import tempfile
+import uuid
 
 import pytest
 from playwright.async_api import async_playwright
@@ -15,6 +16,15 @@ from browser_worker.adapters import MockATSAdapter
 from browser_worker.state import BrowserState
 
 MOCK_ATS_URL = os.environ.get("MOCK_ATS_URL", "http://mock-ats:8080")
+
+# mock-ats's account store is a real, process-lifetime dict on a long-lived
+# docker-compose service (never restarted between test runs) - a fixed
+# email here would 409-collide with whatever an earlier run already
+# registered, silently failing signup and cascading into "element not
+# visible" timeouts several steps later. See test_generic_adapter_detect_state.py's
+# _run_id for the same fix applied there (root cause of this suite's
+# "passes alone, fails together" flakiness).
+_RUN_ID = uuid.uuid4().hex[:12]
 
 
 @pytest.fixture
@@ -90,7 +100,7 @@ class TestInspectForm:
         # mock ATS's "pages" are hash-routed stages, not directly linkable.
         await mock_ats_page.click("#apply-btn")
         await mock_ats_page.click("#show-signup-btn")
-        await mock_ats_page.fill('[name="signup_email"]', "inspecttest@example.com")
+        await mock_ats_page.fill('[name="signup_email"]', f"inspecttest-{_RUN_ID}@example.com")
         await mock_ats_page.fill('[name="signup_password"]', "Sup3rSecure!Pass")
         await mock_ats_page.fill('[name="signup_confirm_password"]', "Sup3rSecure!Pass")
         await mock_ats_page.click('#signup-form button[type="submit"]')
@@ -115,6 +125,12 @@ class TestInspectForm:
         assert "email" in field_names
         # resume upload happens earlier now, page 1 must not have a file field
         assert "resume" not in field_names
+        # Honeypot (no associated label, near-zero geometry) must be excluded -
+        # see services/field_visibility.py and the Workday "beecatcher" finding.
+        assert "website" not in field_names
+        # A legitimate near-zero-size field WITH a real <label for> must still
+        # be picked up - mirrors Greenhouse/Ashby's custom-styled widgets.
+        assert "pronouns" in field_names
 
 
 class TestFillFieldAndNavigate:
@@ -126,7 +142,7 @@ class TestFillFieldAndNavigate:
         adapter = MockATSAdapter()
         await mock_ats_page.click("#apply-btn")
         await mock_ats_page.click("#show-signup-btn")
-        await mock_ats_page.fill('[name="signup_email"]', "navtest@example.com")
+        await mock_ats_page.fill('[name="signup_email"]', f"navtest-{_RUN_ID}@example.com")
         await mock_ats_page.fill('[name="signup_password"]', "Sup3rSecure!Pass")
         await mock_ats_page.fill('[name="signup_confirm_password"]', "Sup3rSecure!Pass")
         await mock_ats_page.click('#signup-form button[type="submit"]')
@@ -144,7 +160,7 @@ class TestFillFieldAndNavigate:
 
         await mock_ats_page.fill('[name="first_name"]', "Nav")
         await mock_ats_page.fill('[name="last_name"]', "Test")
-        await mock_ats_page.fill('[name="email"]', "navtest@example.com")
+        await mock_ats_page.fill('[name="email"]', f"navtest-{_RUN_ID}@example.com")
 
         result = await adapter.navigate_next(mock_ats_page)
         assert result.success is True
