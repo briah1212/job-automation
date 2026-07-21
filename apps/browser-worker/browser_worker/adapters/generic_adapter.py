@@ -424,6 +424,19 @@ class GenericAdapter(ATSAdapter):
         return min(score, 1.0)
 
     def _score_resume_parse_wait(self, s: dict) -> float:
+        if s["has_file_input"]:
+            # A genuine "parsing in progress" state follows a completed
+            # upload - the file input is gone/replaced by then. If it's
+            # still visibly present and empty, any "parsing"/"please wait"
+            # text on the page is static instructional copy describing the
+            # upload widget, not a live status. Found live against a real
+            # Ashby posting: its "autofill from resume" widget permanently
+            # reads "Parsing your resume. Autofilling key fields..." as
+            # placeholder copy before any file has ever been selected -
+            # this locked detect_state onto resume_parse_wait for the
+            # entire run, on a fully-rendered 11-field form that had never
+            # been touched.
+            return 0.0
         score = 0.0
         if any(w in s["body_text"] for w in ("parsing", "processing your resume", "please wait")):
             score += 0.6
@@ -643,10 +656,20 @@ class GenericAdapter(ATSAdapter):
         if not result.success:
             return StateHandlerResult(success=False, error=result.error)
 
-        submit_btn = await self._find_button_by_words(page, _SUBMIT_BUTTON_WORDS + _NEXT_BUTTON_WORDS)
-        if not submit_btn:
-            return StateHandlerResult(success=False, error="No continue control found on resume upload form")
-        await submit_btn.click()
+        # Only advance via an explicit next/continue control, never a
+        # submit-worded one. A dedicated resume-upload STEP (its own page,
+        # like the mock fixture) has a real "Upload & Continue" button; a
+        # single-page form where the resume is just one of many fields does
+        # not, and the only button a broader search would find is the
+        # form's actual final submit control - clicking that here would
+        # submit an application missing every other field, bypassing the
+        # submit_ready/awaiting_approval gate entirely (found live against
+        # a real Ashby posting). If there's no next/continue control, this
+        # is that single-page case: leave it for detect_state to
+        # re-classify and hand off to the normal field-filling path.
+        next_btn = await self._find_button_by_words(page, _NEXT_BUTTON_WORDS)
+        if next_btn:
+            await next_btn.click()
         return StateHandlerResult(success=True)
 
     async def _handle_resume_parse_wait(self, page: Page, ctx: RunContext) -> StateHandlerResult:
