@@ -351,7 +351,13 @@ class GenericAdapter(ATSAdapter):
 
     def _score_landing(self, s: dict) -> float:
         score = 0.0
-        if any(b in ("apply", "apply now") for b in s["buttons"]):
+        # Substring match, not exact - a real "Apply" CTA is rarely just the
+        # bare word (e.g. Ashby's "Apply for this job"). Every other button
+        # check in this adapter already matches this way (including the
+        # handler that actually clicks it, _find_button_by_words); this one
+        # was the odd one out, which meant a page could score too low here
+        # to ever reach the click that would have revealed the real form.
+        if any(w in b for b in s["buttons"] for w in ("apply", "apply now")):
             score += 0.6
         if s["visible_field_count"] == 0 and not s["has_password"]:
             score += 0.3
@@ -441,12 +447,32 @@ class GenericAdapter(ATSAdapter):
             score += 0.4
         if any(w in h for h in s["headings"] for w in ("review", "confirm your")):
             score += 0.3
-        if any(w in s["buttons"] for w in ("submit", "submit application")) and s["unchecked_required_checkbox"]:
+        # Same substring-vs-exact-membership bug as _score_landing: `w in
+        # s["buttons"]` checks whether "submit" is itself a whole element of
+        # the list, not a substring of one - a button reading "Submit Now"
+        # or "Submit Your Application" would never match.
+        if any(w in b for b in s["buttons"] for w in ("submit", "submit application")) and s["unchecked_required_checkbox"]:
             score += 0.2
         return min(score, 1.0)
 
     def _score_submit_ready(self, s: dict) -> float:
         if s["unchecked_required_checkbox"]:
+            return 0.0
+        if s["visible_field_count"] == 0:
+            # A genuine review/submit-ready page always carries some visible
+            # form state (filled fields, a consent checkbox, a read-only
+            # summary input) - zero visible fields means either a plain
+            # landing/description page whose CTA happens to contain a
+            # submit-ish word ("Apply for this job"), or a client-rendered
+            # SPA that fired networkidle before it actually painted the
+            # form. Found live against a real Ashby posting: the page still
+            # read "you need to enable javascript to run this app" when
+            # detect_state scored it submit_ready at 0.5 confidence purely
+            # from the word "apply" in a nav CTA - nothing had been filled.
+            # Misclassifying either case as submit-ready is the single most
+            # dangerous mistake this state machine can make, so both must
+            # score 0 here rather than fall through to the button/heading
+            # heuristics below.
             return 0.0
         score = 0.0
         if any(w in b for b in s["buttons"] for w in _SUBMIT_BUTTON_WORDS):
@@ -504,10 +530,30 @@ class GenericAdapter(ATSAdapter):
         return await handler(page, ctx)
 
     async def _handle_landing(self, page: Page, ctx: RunContext) -> StateHandlerResult:
+        """Click Apply and verify it actually did something - found live
+        against a real Workday posting where clicking a real, visible Apply
+        link (valid href, no JS errors) left the page completely unchanged
+        even after several seconds, and detect_state kept re-classifying the
+        same unchanged page as LANDING on every subsequent loop iteration.
+        Without this check that burns the entire MAX_TRANSITIONS/wall-clock
+        budget (40 identical checkpoints) before finally giving up with a
+        vague "exceeded transition/time budget" error - failing fast here
+        instead gives a specific, actionable one."""
         btn = await self._find_button_by_words(page, ("apply now", "apply"))
         if not btn:
             return StateHandlerResult(success=False, error="No Apply button found")
+
+        before_url = page.url
+        before_text = await page.text_content("body")
+
         await btn.click()
+        await page.wait_for_timeout(2000)
+
+        if page.url == before_url and await page.text_content("body") == before_text:
+            return StateHandlerResult(
+                success=False,
+                error="Clicked Apply but the page did not change (no navigation, no content change)",
+            )
         return StateHandlerResult(success=True)
 
     async def _handle_apply(self, page: Page, ctx: RunContext) -> StateHandlerResult:

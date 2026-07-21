@@ -29,6 +29,17 @@ MAX_UNKNOWN_STREAK = 3
 # own budget check a chance to fire first in the normal case.
 _HARD_TIMEOUT_SECONDS = MAX_WALL_CLOCK_SECONDS + 120
 
+# "networkidle" only tracks network activity, not client-side rendering - a
+# heavy SPA (confirmed live against a real Ashby posting) can fire
+# networkidle while the actual form is still being fetched/hydrated by a
+# dynamically-injected JS bundle, leaving detect_state looking at a bare
+# "enable javascript to run this app" shell. Rather than pay this wait on
+# every navigation (most pages, including every mock-ats state, render well
+# within networkidle), it's spent once, only on the specific path that's
+# about to give up for good: the very first classification of a run, before
+# there's any last_known_state to fall back on.
+_FIRST_DETECTION_SETTLE_TIMEOUT_MS = 4000
+
 
 class BrowserWorker:
     """Browser automation state machine.
@@ -178,9 +189,27 @@ class BrowserWorker:
                 f"hard timeout - a single operation exceeded the {_HARD_TIMEOUT_SECONDS}s wall-clock budget",
             )
 
+    async def _wait_for_form_content(self, page: Page) -> bool:
+        """Best-effort wait for real form content (an input/select/textarea)
+        to appear - used only when the very first page classification of a
+        run comes back UNKNOWN, right before that would otherwise escalate
+        immediately (see _FIRST_DETECTION_SETTLE_TIMEOUT_MS). Returns True
+        if something appeared and re-classifying is worth it, False on
+        timeout (there's genuinely no form yet, e.g. a plain landing page -
+        not an error, just nothing to wait for)."""
+        try:
+            await page.wait_for_selector(
+                "input:visible, select:visible, textarea:visible",
+                timeout=_FIRST_DETECTION_SETTLE_TIMEOUT_MS,
+            )
+            return True
+        except Exception:
+            return False
+
     async def run_state_machine(self, page: Page, adapter, ctx: RunContext) -> dict:
         """The primary browser control loop: detect state, checkpoint, act, wait, repeat."""
         ctx.started_at = time.monotonic()
+        settled_first_detection = False
 
         while True:
             ctx.transitions += 1
@@ -207,6 +236,16 @@ class BrowserWorker:
                     decision_reasoning=adapter.get_last_detection_reasoning(),
                     field_sources=ctx.field_sources, action_log=ctx.action_log,
                 )
+                if ctx.last_known_state is None and not settled_first_detection:
+                    # No fallback state to retry as, and nothing confirms yet
+                    # whether this is a genuinely unsupported page or just a
+                    # slow-hydrating SPA (networkidle fired before the real
+                    # form rendered - confirmed live against a real Ashby
+                    # posting). Spend the settle-wait once before escalating.
+                    settled_first_detection = True
+                    if await self._wait_for_form_content(page):
+                        ctx.unknown_streak = 0
+                        continue
                 if ctx.unknown_streak >= MAX_UNKNOWN_STREAK or ctx.last_known_state is None:
                     return await self._escalate(page, ctx, PauseReason.UNSUPPORTED_FLOW, "could not classify page state")
                 # Retry the last confident handler rather than giving up immediately.
