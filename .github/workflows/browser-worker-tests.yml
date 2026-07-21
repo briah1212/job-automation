@@ -1,0 +1,62 @@
+name: Browser Worker Test Suite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "apps/browser-worker/**"
+      - "backend/**"
+      - "fixtures/ats-sites/mock-ats/**"
+      - "docker-compose.yml"
+      - "tests/integration/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bring up the stack
+        run: docker compose up -d postgres redis minio api mock-ats browser-worker job-worker
+
+      - name: Wait for api to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8001/health > /dev/null; then
+              echo "api is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "api never became healthy" >&2
+          docker compose logs api
+          exit 1
+
+      - name: Run browser-worker unit + fixture tests (inside the container)
+        run: docker compose exec -T browser-worker python3 -m pytest tests/ -v
+
+      - name: Set up Python for the integration suite
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install integration test dependencies
+        run: pip install -r tests/integration/requirements.txt
+
+      - name: Run integration test suite (host-driven, includes container-restart recovery)
+        env:
+          TEST_API_URL: http://localhost:8001
+          TEST_DATABASE_DSN: "host=localhost port=5432 dbname=job_automation user=postgres password=postgres"
+        run: pytest tests/integration -v --timeout=180
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose logs api --tail 300
+          docker compose logs browser-worker --tail 300
+          docker compose logs mock-ats --tail 100
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
