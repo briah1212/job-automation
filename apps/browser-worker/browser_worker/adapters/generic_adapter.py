@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import List, Optional, Tuple
 
 from playwright.async_api import Page, ElementHandle
@@ -21,6 +22,40 @@ logger = logging.getLogger(__name__)
 
 _NEXT_BUTTON_WORDS = ("next", "continue", "proceed")
 _SUBMIT_BUTTON_WORDS = ("submit", "apply", "send application", "finish")
+
+# Fallback label lookup for forms that associate a label with its field
+# through DOM position rather than a semantic <label for="..."> - e.g.
+# Lever's custom "Cards" question widget (education history, and similar
+# repeatable-question groups) renders a `.application-label` div as a
+# sibling of the `.application-field` div wrapping the actual input,
+# with no `for`/`id` link between them at all. Without this, inspect_form's
+# only fallback is prettifying the raw `name` attribute, which for a Cards
+# field looks like "cards[d54adf7b-3148-4095-93bb-72bef32a61f8][field1]" -
+# meaningless to both a human reviewer and the field-mapping/question agent
+# that has to decide what value belongs there.
+_SIBLING_LABEL_JS = """
+el => {
+    // Start from the parent, not el itself - an input/textarea can carry
+    // its own "field"-ish class (e.g. Lever's "card-field-input"), which
+    // would otherwise short-circuit closest() on the element itself instead
+    // of walking up to the actual label/field container pairing.
+    const start = el.parentElement || el;
+    const fieldContainer = start.closest('[class*="field" i]');
+    if (!fieldContainer) return null;
+    let sib = fieldContainer.previousElementSibling;
+    while (sib) {
+        if (/label/i.test(sib.className || '')) {
+            const text = (sib.textContent || '').trim();
+            if (text) return text;
+        }
+        sib = sib.previousElementSibling;
+    }
+    return null;
+}
+"""
+# Strips a trailing required-field marker (e.g. Lever's "✱", a plain "*")
+# that's concatenated directly into the label div's text content.
+_TRAILING_REQUIRED_MARKER_RE = re.compile(r"[✱*]+\s*$")
 
 
 class GenericAdapter(ATSAdapter):
@@ -83,10 +118,17 @@ class GenericAdapter(ATSAdapter):
 
             label_text = identifier.replace("_", " ").replace("-", " ").title()
             try:
+                resolved_label = None
                 if input_id:
                     label_elem = await page.query_selector(f'label[for="{input_id}"]')
                     if label_elem:
-                        label_text = await label_elem.text_content()
+                        resolved_label = await label_elem.text_content()
+                if not resolved_label:
+                    resolved_label = await input_elem.evaluate(_SIBLING_LABEL_JS)
+                if resolved_label:
+                    cleaned = _TRAILING_REQUIRED_MARKER_RE.sub("", resolved_label).strip()
+                    if cleaned:
+                        label_text = cleaned
             except Exception:
                 pass
 
