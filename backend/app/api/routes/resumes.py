@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 import uuid
 from typing import Annotated
 
@@ -15,6 +17,23 @@ from app.schemas.resume import ResumeFamily as ResumeFamilySchema
 from app.schemas.resume import ResumeVersion as ResumeVersionSchema
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
+
+# Matches queue_worker.py's _STORAGE_ROOT - both api and browser-worker mount
+# the same ./storage host directory at this path (see docker-compose.yml), so
+# a file written here by this endpoint is exactly what BrowserWorker reads
+# when it uploads a resume during a real ATS submission.
+_STORAGE_ROOT = "/app/storage"
+
+# The filename becomes part of a filesystem write path below (it previously
+# only lived in a DB column), so strip anything that isn't a safe filename
+# character to rule out path traversal via a crafted upload filename.
+_UNSAFE_FILENAME_CHARS_RE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _safe_filename(filename: str | None) -> str:
+    name = os.path.basename(filename or "resume")
+    name = _UNSAFE_FILENAME_CHARS_RE.sub("_", name)
+    return name or "resume"
 
 
 @router.get("", response_model=list[ResumeFamilySchema])
@@ -55,7 +74,7 @@ async def upload_resume(
     # Read file content
     content = await file.read()
     file_hash = hashlib.sha256(content).hexdigest()
-    
+
     # Create resume family
     family = ResumeFamily(
         user_id=current_user.id,
@@ -64,22 +83,31 @@ async def upload_resume(
     )
     db.add(family)
     db.flush()
-    
+
     # Create version
+    relative_path = f"resumes/{current_user.id}/{family.id}/v1_{_safe_filename(file.filename)}"
     version = ResumeVersion(
         family_id=family.id,
         version=1,
         status=ResumeStatus.parsing,
-        file_path=f"resumes/{current_user.id}/{family.id}/v1_{file.filename}",
+        file_path=relative_path,
         file_hash=file_hash
     )
     db.add(version)
+
+    absolute_path = os.path.join(_STORAGE_ROOT, relative_path)
+    os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+    with open(absolute_path, "wb") as f:
+        f.write(content)
+
     db.commit()
     db.refresh(family)
     db.refresh(version)
-    
-    # TODO: Save file to storage and trigger parsing workflow
-    
+
+    # TODO: trigger a real parsing workflow (structured extraction of resume
+    # content) - status stays "parsing" until that exists; out of scope for
+    # browser-automation validation, which only needs the file on disk.
+
     return {"family": family, "version": version}
 
 
