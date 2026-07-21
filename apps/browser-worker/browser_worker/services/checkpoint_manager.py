@@ -1,5 +1,6 @@
 import logging
 import json
+import re
 import uuid
 from pathlib import Path
 from datetime import datetime
@@ -248,14 +249,27 @@ class CheckpointManager:
             return {}
 
     def _redact_sensitive(self, fields: dict) -> dict:
-        """Redact sensitive field values"""
+        """Redact sensitive field values by name, with a value-pattern check
+        as defense in depth for fields whose name doesn't give it away.
+
+        The name-keyword list was previously narrow enough to miss real PII
+        field names real ATS forms use (date of birth, national/government
+        ID, bank details) - anything not on the list was written to Postgres
+        in plaintext. Broadened here; the value-pattern check additionally
+        catches an SSN- or card-shaped value sitting in a genuinely generic
+        field (e.g. a free-text "additional notes" box) that no name-based
+        list could ever fully anticipate.
+        """
         sensitive_keys = [
-            "password",
-            "ssn",
-            "social_security",
-            "credit_card",
-            "cvv",
+            "password", "passwd", "pwd",
+            "ssn", "social_security", "social_insurance",
+            "credit_card", "card_number", "cvv", "cvc", "security_code",
             "pin",
+            "date_of_birth", "dob", "birth_date", "birthdate",
+            "national_id", "nationalid", "passport",
+            "drivers_license", "driver_license", "driving_license", "license_number",
+            "bank_account", "account_number", "routing_number", "iban", "swift",
+            "tax_id", "taxid", "ein", "itin",
         ]
 
         redacted = {}
@@ -263,7 +277,26 @@ class CheckpointManager:
             key_lower = key.lower()
             if any(sensitive in key_lower for sensitive in sensitive_keys):
                 redacted[key] = "[REDACTED]"
+            elif self._looks_like_sensitive_value(value):
+                redacted[key] = "[REDACTED]"
             else:
                 redacted[key] = value
 
         return redacted
+
+    @staticmethod
+    def _looks_like_sensitive_value(value: Any) -> bool:
+        """Value-shape check independent of field name - an SSN or card
+        number typed into a genuinely generic field (free-text notes, an
+        unmapped custom question) would otherwise slip past name-based
+        redaction entirely."""
+        if not isinstance(value, str):
+            return False
+        digits_only = re.sub(r"[\s-]", "", value)
+        if not digits_only.isdigit():
+            return False
+        # SSN (9 digits) or a plausible card number (13-19 digits) - both
+        # ranges intentionally wide rather than validating a real checksum,
+        # since a false-positive redaction is a far cheaper mistake than a
+        # false-negative leak here.
+        return len(digits_only) == 9 or 13 <= len(digits_only) <= 19
