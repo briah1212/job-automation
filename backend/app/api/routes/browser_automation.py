@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -15,10 +16,12 @@ from app.models import (
     ApplicationAnswer,
     ApplicationPipelineStatus,
     ApplicationQuestion,
+    BrowserSession,
     ReusableAnswer,
     WorkflowStatus,
     WorkflowTask,
 )
+from app.services.replay_report import build_replay_report
 
 router = APIRouter(prefix="/applications", tags=["browser-automation"])
 
@@ -259,3 +262,27 @@ def cancel_browser_submission(
     db.refresh(task)
 
     return {"id": str(task.id), "status": task.status.value}
+
+
+@router.get("/{application_id}/replay", response_class=HTMLResponse)
+def get_replay_report(
+    application_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> str:
+    """A self-contained HTML timeline of every checkpoint this application's
+    browser session went through - screenshot, DOM snapshot, why each state
+    was detected, where each field's value came from, and every action
+    taken, in order. Built specifically so a real-world failure doesn't need
+    to be reproduced live to understand - see app.services.replay_report."""
+    _get_application(application_id, current_user, db)
+    browser_session = (
+        db.query(BrowserSession)
+        .filter(BrowserSession.application_id == application_id)
+        .order_by(BrowserSession.created_at.desc())
+        .first()
+    )
+    if browser_session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No browser session found for this application")
+
+    return build_replay_report(db, browser_session.id)

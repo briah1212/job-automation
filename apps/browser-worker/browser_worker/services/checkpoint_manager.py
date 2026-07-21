@@ -47,10 +47,21 @@ class CheckpointManager:
         step: str,
         filled_fields: dict,
         page_number: int = 1,
+        decision_reasoning: Optional[dict] = None,
+        field_sources: Optional[dict] = None,
+        action_log: Optional[list] = None,
     ) -> Checkpoint:
-        """Save a checkpoint: URL, screenshot, redacted filled fields, form state, timestamp."""
+        """Save a checkpoint: URL, screenshot, DOM snapshot, redacted filled
+        fields, form state, timestamp, plus a replay/debug trail (why this
+        state was detected, where each field's value came from, what
+        actions were taken) - see services/replay_report.py, which is what
+        actually reads decision_reasoning/field_sources/action_log back out.
+        The last three are optional/best-effort: a caller that can't supply
+        them (or a failure while capturing the DOM) must not block the
+        resume-critical parts of a checkpoint from being written."""
         timestamp = datetime.utcnow()
         screenshot_bytes = await page.screenshot(full_page=True)
+        dom_snapshot = await self._extract_dom_snapshot(page)
         raw_form_state = await self._extract_form_state(page)
         redacted_fields = self._redact_sensitive(filled_fields.copy())
         redacted_form_state = {
@@ -60,7 +71,11 @@ class CheckpointManager:
 
         if self._durable:
             screenshot_ref = await self._store_screenshot_durable(session_id, step, timestamp, screenshot_bytes)
-            self._store_checkpoint_durable(step, page.url, screenshot_ref, redacted_fields, redacted_form_state, page_number)
+            dom_ref = await self._store_dom_snapshot_durable(session_id, step, timestamp, dom_snapshot)
+            self._store_checkpoint_durable(
+                step, page.url, screenshot_ref, dom_ref, redacted_fields, redacted_form_state, page_number,
+                decision_reasoning or {}, field_sources or {}, action_log or [],
+            )
         else:
             screenshot_ref = self._store_screenshot_local(session_id, step, timestamp, screenshot_bytes)
             self._store_checkpoint_local(session_id, step, timestamp, page.url, screenshot_ref, redacted_fields, redacted_form_state, page_number)
@@ -97,15 +112,35 @@ class CheckpointManager:
 
     # -- Durable (Postgres + MinIO) backend --
 
-    async def _store_screenshot_durable(self, session_id: str, step: str, timestamp: datetime, data: bytes) -> str:
+    async def _store_screenshot_durable(self, session_id: str, step: str, timestamp: datetime, data: bytes) -> Optional[str]:
+        return await self._put_object_durable(session_id, step, timestamp, data, "png", "image/png")
+
+    async def _store_dom_snapshot_durable(self, session_id: str, step: str, timestamp: datetime, html: str) -> Optional[str]:
+        return await self._put_object_durable(session_id, step, timestamp, html.encode("utf-8"), "html", "text/html")
+
+    async def _put_object_durable(
+        self, session_id: str, step: str, timestamp: datetime, data: bytes, extension: str, content_type: str
+    ) -> Optional[str]:
+        """A checkpoint asset (screenshot/DOM snapshot) failing to upload must
+        not abort the whole task - the resume-critical parts of a checkpoint
+        (state, URL, filled_fields) have nothing to do with whether MinIO is
+        reachable right now. Returns None on failure; the checkpoint row
+        just gets a null object key for this asset rather than never being
+        written at all."""
         from app.core.object_storage import get_browser_artifacts_storage
 
-        object_key = f"{session_id}/{step}_{timestamp.strftime('%Y%m%d_%H%M%S')}.png"
-        get_browser_artifacts_storage().put_bytes(object_key, data, content_type="image/png")
-        return object_key
+        object_key = f"{session_id}/{step}_{timestamp.strftime('%Y%m%d_%H%M%S')}.{extension}"
+        try:
+            get_browser_artifacts_storage().put_bytes(object_key, data, content_type=content_type)
+            return object_key
+        except Exception as exc:
+            logger.warning(f"Failed to upload {extension} checkpoint asset to MinIO (checkpoint still saved): {exc}")
+            return None
 
     def _store_checkpoint_durable(
-        self, step: str, url: str, screenshot_object_key: str, filled_fields: dict, form_state: dict, page_number: int
+        self, step: str, url: str, screenshot_object_key: Optional[str], dom_snapshot_object_key: Optional[str],
+        filled_fields: dict, form_state: dict, page_number: int,
+        decision_reasoning: dict, field_sources: dict, action_log: list,
     ) -> None:
         from app.models import BrowserCheckpoint
 
@@ -115,9 +150,13 @@ class CheckpointManager:
             step=step,
             url=url,
             screenshot_object_key=screenshot_object_key,
+            dom_snapshot_object_key=dom_snapshot_object_key,
             filled_fields=filled_fields,
             form_state=form_state,
             page_number=page_number,
+            decision_reasoning=decision_reasoning,
+            field_sources=field_sources,
+            action_log=action_log,
         )
         self._db.add(row)
         self._db.commit()
@@ -209,6 +248,18 @@ class CheckpointManager:
         return checkpoint
 
     # -- Shared helpers --
+
+    async def _extract_dom_snapshot(self, page: Page) -> str:
+        """Full rendered HTML at this checkpoint - what detect_state/inspect_form
+        actually saw, independent of the screenshot (a screenshot shows what
+        a human would see; this shows what the adapter's selectors saw,
+        which is what actually matters for debugging a misclassification or
+        a selector that didn't match)."""
+        try:
+            return await page.content()
+        except Exception as exc:
+            logger.warning(f"Failed to capture DOM snapshot (non-fatal): {exc}")
+            return ""
 
     async def _extract_form_state(self, page: Page) -> Dict[str, Any]:
         """Extract current form state"""

@@ -117,3 +117,17 @@ class RunContext:
 
     confirmation_id: Optional[str] = None
     started_wall_clock: datetime = field(default_factory=datetime.utcnow)
+
+    # Replay/debug trail (see services/replay_report.py) - not part of the
+    # resume-critical state above, purely diagnostic. field_sources answers
+    # "where did this value come from" per field
+    # ("learned_mapping"/"regex"/"answered_question"/"agent"); action_log is
+    # a running list of high-level actions taken this run, in order. Both
+    # accumulate for the life of the run and get attached to every
+    # checkpoint - a real failure on step 17 of 25 is then replayable from
+    # that checkpoint's own snapshot, not just the state name.
+    field_sources: dict = field(default_factory=dict)
+    action_log: list = field(default_factory=list)
+
+    def log_action(self, action: str, **details) -> None:
+        self.action_log.append({"action": action, **details})

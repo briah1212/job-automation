@@ -36,6 +36,9 @@ class GenericAdapter(ATSAdapter):
     actually on screen).
     """
 
+    def __init__(self):
+        self._last_detection_reasoning: dict = {}
+
     async def detect(self, page: Page) -> bool:
         """Always returns True as fallback"""
         return True
@@ -430,9 +433,16 @@ class GenericAdapter(ATSAdapter):
             BrowserState.SUBMIT_READY: self._score_submit_ready(signals),
         }
         best_state, best_score = max(scores.items(), key=lambda kv: kv[1])
+        self._last_detection_reasoning = {
+            "signals": signals,
+            "scores": {state.value: score for state, score in scores.items()},
+        }
         if best_score < 0.5:
             return BrowserState.UNKNOWN, best_score
         return best_state, best_score
+
+    def get_last_detection_reasoning(self) -> dict:
+        return self._last_detection_reasoning
 
     async def handle_state(self, state: BrowserState, page: Page, ctx: RunContext) -> StateHandlerResult:
         handlers = {

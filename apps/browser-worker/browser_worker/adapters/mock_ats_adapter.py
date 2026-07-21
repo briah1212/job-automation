@@ -33,6 +33,9 @@ _HASH_STATE_MAP = {
 class MockATSAdapter(ATSAdapter):
     """Adapter for Mock ATS test site"""
 
+    def __init__(self):
+        self._last_detection_reasoning: dict = {}
+
     async def detect(self, page: Page) -> bool:
         """Detect by checking for data-ats="mock" attribute"""
         try:
@@ -321,6 +324,7 @@ class MockATSAdapter(ATSAdapter):
         signal-scoring fallback."""
         url = page.url
         if "confirmation.html" in url:
+            self._last_detection_reasoning = {"url": url, "matched": "confirmation.html"}
             return BrowserState.SUBMITTED, 1.0
 
         fragment = url.split("#", 1)[1] if "#" in url else ""
@@ -330,17 +334,25 @@ class MockATSAdapter(ATSAdapter):
             page_indicator = await page.text_content("#page-indicator")
             on_review_page = bool(page_indicator and "Page 3" in page_indicator)
             if not on_review_page:
+                self._last_detection_reasoning = {"url": url, "fragment": fragment, "matched": "application (not page 3)"}
                 return BrowserState.APPLICATION, 1.0
             try:
                 terms_checked = await page.is_checked('[name="terms"]')
             except Exception:
                 terms_checked = False
+            self._last_detection_reasoning = {
+                "url": url, "fragment": fragment, "page_indicator": page_indicator, "terms_checked": terms_checked,
+            }
             return (BrowserState.SUBMIT_READY if terms_checked else BrowserState.REVIEW), 1.0
 
         mapped = _HASH_STATE_MAP.get(fragment)
+        self._last_detection_reasoning = {"url": url, "fragment": fragment, "matched_hash_route": mapped.value if mapped else None}
         if mapped is not None:
             return mapped, 1.0
         return BrowserState.UNKNOWN, 0.0
+
+    def get_last_detection_reasoning(self) -> dict:
+        return self._last_detection_reasoning
 
     async def handle_state(self, state: BrowserState, page: Page, ctx: RunContext) -> StateHandlerResult:
         handlers = {

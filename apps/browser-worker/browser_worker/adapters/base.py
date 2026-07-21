@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Dict, Tuple
 from playwright.async_api import Page
 from ..models import (
     ApplicationForm,
@@ -77,3 +77,12 @@ class ATSAdapter(ABC):
         login, etc). Dispatches internally to per-state handler methods -
         callers only need this one entry point."""
         pass
+
+    def get_last_detection_reasoning(self) -> Dict:
+        """Why the most recent detect_state call classified the page the way
+        it did - not part of detect_state's own return value so that adding
+        it didn't require changing every existing call site/test. Purely
+        diagnostic, attached to checkpoints for replay (see
+        services/replay_report.py). Default empty for adapters that don't
+        override it - detect_state working correctly never depends on this."""
+        return {}

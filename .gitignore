@@ -17,3 +17,7 @@ storage/
 *.db
 .venv/
 venv/
+
+# Real personal data used for manual/real-ATS validation runs - never belongs
+# in git history (name, contact info, work history).
+sample_resume.pdf

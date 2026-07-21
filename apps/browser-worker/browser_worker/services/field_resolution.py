@@ -102,6 +102,7 @@ async def resolve_field_value(field: FormField, ctx: RunContext, app_data_dict: 
                 label=field.label,
                 canonical_name=canonical,
             )
+            ctx.field_sources[field.name] = "learned_mapping"
             return app_data_dict[canonical]
 
     canonical_name = ctx.field_mapper.map_to_canonical(field)
@@ -116,6 +117,7 @@ async def resolve_field_value(field: FormField, ctx: RunContext, app_data_dict: 
                 label=field.label,
                 canonical_name=canonical_name,
             )
+        ctx.field_sources[field.name] = "regex"
         return value
 
     if ctx.answered_question and ctx.answered_question.get("field_name") == field.name:
@@ -125,6 +127,7 @@ async def resolve_field_value(field: FormField, ctx: RunContext, app_data_dict: 
         # question again (avoids a pause/answer/pause loop); fill_field's own
         # error handling and the navigation-stall detection in navigate_next
         # will surface a clear failure if it truly can't be filled.
+        ctx.field_sources[field.name] = "answered_question"
         return _constrain_to_options(raw, field) or raw
 
     if not field.required:
@@ -165,4 +168,5 @@ async def resolve_field_value(field: FormField, ctx: RunContext, app_data_dict: 
         return None
 
     logger.info(f"ApplicationQuestionAgent answered {field.name} via source={answer.get('source')}")
+    ctx.field_sources[field.name] = f"agent:{answer.get('source', 'unknown')}"
     return resolved

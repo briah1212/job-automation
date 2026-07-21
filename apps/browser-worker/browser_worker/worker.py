@@ -193,6 +193,7 @@ class BrowserWorker:
             # and the prior state's checkpoint remains the correct resume anchor
             # (same reasoning as _pause_for_manual_intervention below).
             if await detect_captcha_challenge(page):
+                ctx.log_action("captcha_detected", url=page.url)
                 return await self._escalate(page, ctx, PauseReason.CAPTCHA, "interactive CAPTCHA challenge detected")
 
             state, confidence = await adapter.detect_state(page)
@@ -203,6 +204,8 @@ class BrowserWorker:
                 await self.checkpoint_manager.create_checkpoint(
                     session_id=ctx.session_id, page=page, step=BrowserState.UNKNOWN.value,
                     filled_fields=ctx.filled_fields, page_number=ctx.current_page,
+                    decision_reasoning=adapter.get_last_detection_reasoning(),
+                    field_sources=ctx.field_sources, action_log=ctx.action_log,
                 )
                 if ctx.unknown_streak >= MAX_UNKNOWN_STREAK or ctx.last_known_state is None:
                     return await self._escalate(page, ctx, PauseReason.UNSUPPORTED_FLOW, "could not classify page state")
@@ -214,6 +217,8 @@ class BrowserWorker:
                 await self.checkpoint_manager.create_checkpoint(
                     session_id=ctx.session_id, page=page, step=state.value,
                     filled_fields=ctx.filled_fields, page_number=ctx.current_page,
+                    decision_reasoning=adapter.get_last_detection_reasoning(),
+                    field_sources=ctx.field_sources, action_log=ctx.action_log,
                 )
 
             if state == BrowserState.SUBMITTED:
@@ -234,15 +239,18 @@ class BrowserWorker:
             if state == BrowserState.SUBMIT_READY:
                 if not ctx.approved_for_submit:
                     logger.info("Reached submit_ready - waiting for user approval")
+                    ctx.log_action("await_approval", state=state.value)
                     return {"success": True, "status": "awaiting_approval", "state": state.value, "session_id": ctx.session_id}
                 return await self._do_submit(page, adapter, ctx)
 
             result = await adapter.handle_state(state, page, ctx)
+            ctx.log_action("handle_state", state=state.value, success=result.success, error=result.error)
             if not result.success:
                 return await self._escalate(page, ctx, PauseReason.REPEATED_FAILURE, result.error or f"handler for {state.value} failed")
 
             if ctx.pending_question:
                 logger.info(f"Pausing on unanswered question: {ctx.pending_question.get('label')}")
+                ctx.log_action("pause_question", field=ctx.pending_question.get("field_name"), label=ctx.pending_question.get("label"))
                 return {
                     "success": True,
                     "status": "paused_question",
@@ -255,6 +263,7 @@ class BrowserWorker:
 
     async def _do_submit(self, page: Page, adapter, ctx: RunContext) -> dict:
         logger.info("Submitting application")
+        ctx.log_action("submit", url=page.url)
         submit_result = await adapter.submit(page)
         if not submit_result.success:
             return await self._escalate(page, ctx, PauseReason.REPEATED_FAILURE, submit_result.error or "submit failed")
@@ -264,6 +273,7 @@ class BrowserWorker:
         await self.checkpoint_manager.create_checkpoint(
             session_id=ctx.session_id, page=page, step=BrowserState.SUBMITTED.value,
             filled_fields=ctx.filled_fields, page_number=ctx.current_page,
+            field_sources=ctx.field_sources, action_log=ctx.action_log,
         )
         return {
             "success": True,
@@ -275,6 +285,7 @@ class BrowserWorker:
 
     async def _escalate(self, page: Page, ctx: RunContext, reason: PauseReason, message: str) -> dict:
         logger.warning(f"Escalating to manual intervention ({reason.value}): {message}")
+        ctx.log_action("escalate", reason=reason.value, message=message)
         return await self._pause_for_manual_intervention(page, ctx, reason, detail=message)
 
     async def _pause_for_manual_intervention(
