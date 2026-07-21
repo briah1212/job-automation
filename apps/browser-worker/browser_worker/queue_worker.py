@@ -21,6 +21,7 @@ from app.core.database import SessionLocal
 from app.models import (
     Application,
     ApplicationPipelineStatus,
+    BrowserCheckpoint,
     BrowserPauseReason,
     BrowserSession,
     BrowserSessionStatus,
@@ -45,8 +46,48 @@ _STALE_RUNNING_THRESHOLD_SECONDS = 1800
 
 
 def _get_or_create_browser_session(db: Session, application: Application, task: WorkflowTask, session_key: str) -> BrowserSession:
+    """session_key is deterministic per application (f"app_{application.id}"),
+    which is what makes pause/resume find the same row across repeated
+    pickups of the *same* WorkflowTask - required for CheckpointManager's
+    durable lookups (scoped by browser_session_id) to keep working.
+
+    But that same determinism means a resubmission (a fresh WorkflowTask for
+    an application whose previous attempt already reached a terminal state)
+    would otherwise silently reuse the *old* task's session row untouched -
+    still pointing at the old workflow_task_id, still carrying whatever
+    status a failed/completed prior attempt left behind. Since checkpoint
+    lookups are scoped by browser_session_id, not by task, a resume() on the
+    new task would then resume from the *previous* attempt's stale
+    checkpoint instead of starting fresh. Only reset when the task actually
+    changed - same-task reuse (the normal pause/resume path) must return the
+    row untouched.
+    """
     session = db.query(BrowserSession).filter(BrowserSession.session_key == session_key).first()
     if session is not None:
+        if session.workflow_task_id != task.id:
+            # session_key is unique per application (not per task), so a
+            # resubmission can't get a fresh row via a schema-level identity
+            # change - this row has to be reused. Resetting workflow_task_id/
+            # status alone would NOT be enough on its own: CheckpointManager's
+            # durable lookup is scoped by browser_session.id, which doesn't
+            # change here, so the previous (now-irrelevant) attempt's
+            # checkpoint rows would still be the ones resume() finds via
+            # ORDER BY created_at DESC. Deleting them is what actually makes
+            # this a clean start rather than a cosmetic status reset.
+            stale_checkpoint_count = (
+                db.query(BrowserCheckpoint).filter(BrowserCheckpoint.session_id == session.id).delete()
+            )
+            logger.info(
+                "Resetting browser_session %s for a new workflow_task (%s -> %s) - "
+                "purged %d stale checkpoint(s) from the previous attempt",
+                session.id, session.workflow_task_id, task.id, stale_checkpoint_count,
+            )
+            session.workflow_task_id = task.id
+            session.status = BrowserSessionStatus.active
+            session.browser_state = "queued"
+            session.pause_reason = None
+            db.commit()
+            db.refresh(session)
         return session
 
     session = BrowserSession(
@@ -275,6 +316,15 @@ async def poll_loop() -> None:
         try:
             _reclaim_stale_tasks(db)
 
+            # SKIP LOCKED makes this an atomic claim, not just a read - without
+            # it, a second browser-worker replica running concurrently could
+            # SELECT this same pending row before either of them commits the
+            # status="running" update below, and both would process it (a
+            # duplicate submission, double credential-vault mutation, or
+            # corrupted checkpoint state depending on timing). Currently one
+            # replica in practice, but claiming is written to be correct
+            # under N replicas regardless, since nothing else in this file
+            # enforces single-instance-only.
             task = (
                 db.query(WorkflowTask)
                 .filter(
@@ -282,6 +332,7 @@ async def poll_loop() -> None:
                     WorkflowTask.workflow_type == _WORKFLOW_TYPE,
                 )
                 .order_by(WorkflowTask.created_at.asc())
+                .with_for_update(skip_locked=True)
                 .first()
             )
 
