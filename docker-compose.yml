@@ -69,9 +69,12 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: resumes
+      MINIO_BROWSER_BUCKET: browser-artifacts
       JWT_SECRET: dev-secret-change-in-production
       JWT_ALGORITHM: HS256
       JWT_EXPIRATION_MINUTES: 1440
+      CREDENTIAL_ENCRYPTION_KEY: LXtkpaYI5TGKJJLaaTaxwB5C9V9242HBH1RwanGewt4=
+      INTERNAL_API_KEY: dev-internal-key-change-in-production
       AI_PROVIDER: mock
       ENVIRONMENT: development
     volumes:
@@ -141,20 +144,29 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/job_automation
       API_URL: http://api:8000
+      AI_PROVIDER: mock
+      PYTHONPATH: /backend
       HEADLESS: "true"
+      SECRET_KEY: dev-secret-change-in-production
+      JWT_SECRET: dev-secret-change-in-production
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BROWSER_BUCKET: browser-artifacts
+      INTERNAL_API_KEY: dev-internal-key-change-in-production
     volumes:
       - ./apps/browser-worker:/app
-      - ./storage/screenshots:/app/screenshots
+      - ./backend:/backend:ro
+      - ./storage:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
       api:
         condition: service_started
+      minio:
+        condition: service_healthy
     networks:
       - job_automation_network
-    # Don't auto-start worker in dev mode
-    profiles:
-      - worker
 
   # Mock ATS Site (for testing)
   mock-ats:

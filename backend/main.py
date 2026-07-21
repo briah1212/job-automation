@@ -8,8 +8,12 @@ from app.api.routes import (
     application_review,
     applications,
     auth,
+    browser_automation,
     cover_letter,
     internal_ats_credentials,
+    internal_dynamic_questions,
+    internal_field_mappings,
+    field_mappings,
     jobs,
     profile,
     resume_rendering,
@@ -46,7 +50,11 @@ app.include_router(application_questions.router, prefix="/api")
 app.include_router(application_questions.answers_router, prefix="/api")
 app.include_router(application_review.router, prefix="/api")
 app.include_router(cover_letter.router, prefix="/api")
+app.include_router(browser_automation.router, prefix="/api")
 app.include_router(internal_ats_credentials.router, prefix="/api")
+app.include_router(internal_dynamic_questions.router, prefix="/api")
+app.include_router(internal_field_mappings.router, prefix="/api")
+app.include_router(field_mappings.router, prefix="/api")
 app.include_router(search_profiles.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 

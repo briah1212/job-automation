@@ -17,4 +17,4 @@ RUN mkdir -p /tmp/checkpoints
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "browser_worker.worker"]
+CMD ["python", "-m", "browser_worker.queue_worker"]

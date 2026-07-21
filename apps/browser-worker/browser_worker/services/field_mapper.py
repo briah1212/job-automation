@@ -125,9 +125,8 @@ class FieldMapper:
             return application_data[field.name]
 
         # Try custom fields
-        if "custom_fields" in application_data:
-            custom = application_data["custom_fields"]
-            if field.name in custom:
-                return custom[field.name]
+        custom = application_data.get("custom_fields")
+        if custom and field.name in custom:
+            return custom[field.name]
 
         return None

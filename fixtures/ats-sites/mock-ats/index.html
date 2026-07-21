@@ -9,105 +9,226 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Apply for Senior Data Engineer</h1>
+            <h1>Senior Data Engineer</h1>
             <p class="company">Mock Company Inc.</p>
         </div>
-        
-        <div id="page-indicator">Page 1 of 3</div>
-        <div id="progress-bar">
-            <div id="progress-fill" style="width: 33%"></div>
-        </div>
-        
-        <form id="application-form">
-            <!-- Page 1: Personal Info -->
-            <div class="form-page" data-page="1">
-                <h2>Personal Information</h2>
-                
-                <div class="form-group">
-                    <label>First Name *</label>
-                    <input type="text" name="first_name" required placeholder="John">
-                </div>
-                
-                <div class="form-group">
-                    <label>Last Name *</label>
-                    <input type="text" name="last_name" required placeholder="Doe">
-                </div>
-                
+
+        <div id="error-message" class="error" style="display:none;"></div>
+
+        <!-- Stage: landing -->
+        <section class="stage" data-stage="landing">
+            <h2>About this role</h2>
+            <p>Mock Company Inc. is looking for a Senior Data Engineer to join our platform team.
+               This is a fixture job posting used only for testing browser automation - it is not a real listing.</p>
+            <div class="form-actions">
+                <button type="button" class="btn btn-primary" id="apply-btn">Apply Now</button>
+            </div>
+        </section>
+
+        <!-- Stage: apply (auth choice) -->
+        <section class="stage" data-stage="apply" style="display:none;">
+            <h2>Sign in to apply</h2>
+            <p>You'll need an account with Mock Company Inc. to submit an application.</p>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" id="show-login-btn">Log In</button>
+                <button type="button" class="btn btn-primary" id="show-signup-btn">Create Account</button>
+            </div>
+        </section>
+
+        <!-- Stage: login -->
+        <section class="stage" data-stage="login" style="display:none;">
+            <h2>Log In</h2>
+            <form id="login-form">
                 <div class="form-group">
                     <label>Email *</label>
-                    <input type="email" name="email" required placeholder="john.doe@example.com">
+                    <input type="email" name="login_email" required placeholder="you@example.com">
                 </div>
-                
                 <div class="form-group">
-                    <label>Phone</label>
-                    <input type="tel" name="phone" placeholder="555-0123">
+                    <label>Password *</label>
+                    <input type="password" name="login_password" required>
                 </div>
-                
-                <div class="form-group">
-                    <label>LinkedIn URL</label>
-                    <input type="url" name="linkedin" placeholder="https://linkedin.com/in/yourprofile">
-                </div>
-                
                 <div class="form-actions">
-                    <button type="button" class="btn btn-primary next-btn">Next →</button>
+                    <button type="submit" class="btn btn-primary">Sign In</button>
                 </div>
-            </div>
-            
-            <!-- Page 2: Work Authorization & Resume -->
-            <div class="form-page" data-page="2" style="display:none;">
-                <h2>Work Authorization & Documents</h2>
-                
+            </form>
+        </section>
+
+        <!-- Stage: signup (create_account) -->
+        <section class="stage" data-stage="signup" style="display:none;">
+            <h2>Create Account</h2>
+            <form id="signup-form">
                 <div class="form-group">
-                    <label>Are you authorized to work in the US? *</label>
-                    <select name="work_authorization" required>
+                    <label>Email *</label>
+                    <input type="email" name="signup_email" required placeholder="you@example.com">
+                </div>
+                <div class="form-group">
+                    <label>Password *</label>
+                    <input type="password" name="signup_password" required>
+                    <small>At least 12 characters, with uppercase, lowercase, a digit, and a symbol.</small>
+                </div>
+                <div class="form-group">
+                    <label>Confirm Password *</label>
+                    <input type="password" name="signup_confirm_password" required>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Create Account</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Stage: verify-email (email_verification) -->
+        <section class="stage" data-stage="verify-email" style="display:none;">
+            <h2>Check your email</h2>
+            <p>We sent a verification link to <strong id="verify-email-address"></strong>.
+               Click the link in that email to continue - this fixture does not send real email,
+               so this stage is a deliberate dead end used to test MANUAL_INTERVENTION.</p>
+        </section>
+
+        <!-- Stage: profile-setup -->
+        <section class="stage" data-stage="profile-setup" style="display:none;">
+            <h2>Set Up Your Profile</h2>
+            <form id="profile-setup-form">
+                <div class="form-group">
+                    <label>Preferred Name</label>
+                    <input type="text" name="preferred_name" placeholder="How should we address you?">
+                </div>
+                <div class="form-group">
+                    <label>How did you hear about us? *</label>
+                    <select name="referral_source" required>
                         <option value="">Select...</option>
-                        <option value="yes">Yes</option>
-                        <option value="no">No</option>
+                        <option value="job_board">Job Board</option>
+                        <option value="referral">Employee Referral</option>
+                        <option value="company_site">Company Website</option>
+                        <option value="other">Other</option>
                     </select>
                 </div>
-                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Continue</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Stage: resume-upload -->
+        <section class="stage" data-stage="resume-upload" style="display:none;">
+            <h2>Upload Your Resume</h2>
+            <form id="resume-upload-form">
                 <div class="form-group">
                     <label>Resume * (PDF only)</label>
                     <input type="file" name="resume" accept=".pdf" required>
-                    <small>Upload your resume in PDF format</small>
+                    <small>We'll parse this to speed up the rest of your application.</small>
                 </div>
-                
-                <div class="form-group">
-                    <label>Why are you interested in this role?</label>
-                    <textarea name="interest" rows="4" placeholder="Tell us why you're a great fit..."></textarea>
-                </div>
-                
                 <div class="form-actions">
-                    <button type="button" class="btn btn-secondary prev-btn">← Previous</button>
-                    <button type="button" class="btn btn-primary next-btn">Next →</button>
+                    <button type="submit" class="btn btn-primary">Upload &amp; Continue</button>
                 </div>
+            </form>
+        </section>
+
+        <!-- Stage: resume-parsing (resume_parse_wait) -->
+        <section class="stage" data-stage="resume-parsing" style="display:none;">
+            <h2>Parsing your resume&hellip;</h2>
+            <p>This will just take a moment. Please don't close this window.</p>
+        </section>
+
+        <!-- Stage: application (application + review, existing multi-page form) -->
+        <section class="stage" data-stage="application" style="display:none;">
+            <div id="page-indicator">Page 1 of 3</div>
+            <div id="progress-bar">
+                <div id="progress-fill" style="width: 33%"></div>
             </div>
-            
-            <!-- Page 3: Review & Submit -->
-            <div class="form-page" data-page="3" style="display:none;">
-                <h2>Review Your Application</h2>
-                
-                <div id="review-content" class="review-section">
-                    <p>Loading...</p>
+
+            <form id="application-form">
+                <!-- Page 1: Personal Info -->
+                <div class="form-page" data-page="1">
+                    <h2>Personal Information</h2>
+
+                    <div class="form-group">
+                        <label>First Name *</label>
+                        <input type="text" name="first_name" required placeholder="John">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Last Name *</label>
+                        <input type="text" name="last_name" required placeholder="Doe">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Email *</label>
+                        <input type="email" name="email" required placeholder="john.doe@example.com">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Phone</label>
+                        <input type="tel" name="phone" placeholder="555-0123">
+                    </div>
+
+                    <div class="form-group">
+                        <label>LinkedIn URL</label>
+                        <input type="url" name="linkedin" placeholder="https://linkedin.com/in/yourprofile">
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-primary next-btn">Next &rarr;</button>
+                    </div>
                 </div>
-                
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="terms" required>
-                        I confirm that all information provided is accurate *
-                    </label>
+
+                <!-- Page 2: Work Authorization -->
+                <div class="form-page" data-page="2" style="display:none;">
+                    <h2>Work Authorization</h2>
+
+                    <div class="form-group">
+                        <label>Are you authorized to work in the US? *</label>
+                        <select name="work_authorization" required>
+                            <option value="">Select...</option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Why are you interested in this role?</label>
+                        <textarea name="interest" rows="4" placeholder="Tell us why you're a great fit..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Are you willing to relocate for this role? *</label>
+                        <select name="willing_to_relocate" required>
+                            <option value="">Select...</option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                        </select>
+                        <small>Deliberately not a canonical FieldMapper field - exercises the dynamic-questions fallback.</small>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary prev-btn">&larr; Previous</button>
+                        <button type="button" class="btn btn-primary next-btn">Next &rarr;</button>
+                    </div>
                 </div>
-                
-                <div class="form-actions">
-                    <button type="button" class="btn btn-secondary prev-btn">← Previous</button>
-                    <button type="submit" id="submit-btn" class="btn btn-success">Submit Application</button>
+
+                <!-- Page 3: Review & Submit -->
+                <div class="form-page" data-page="3" style="display:none;">
+                    <h2>Review Your Application</h2>
+
+                    <div id="review-content" class="review-section">
+                        <p>Loading...</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" name="terms" required>
+                            I confirm that all information provided is accurate *
+                        </label>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary prev-btn">&larr; Previous</button>
+                        <button type="submit" id="submit-btn" class="btn btn-success">Submit Application</button>
+                    </div>
                 </div>
-            </div>
-        </form>
-        
-        <div id="error-message" class="error" style="display:none;"></div>
+            </form>
+        </section>
     </div>
-    
+
     <script src="app.js"></script>
 </body>
 </html>

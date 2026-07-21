@@ -11,6 +11,7 @@ from app.models.browser_session import BrowserPauseReason, BrowserSession, Brows
 from app.models.cover_letter import CoverLetter
 from app.models.document_lock import DocumentLock
 from app.models.document_rendering import DocumentRendering
+from app.models.field_mapping import FieldMapping
 from app.models.job import CanonicalJob, JobStatus
 from app.models.job_match import JobMatchScore
 from app.models.model_call import ModelCall
@@ -57,4 +58,5 @@ __all__ = [
     "BrowserCheckpoint",
     "AtsCredential",
     "AtsCredentialStatus",
+    "FieldMapping",
 ]

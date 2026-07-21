@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Tuple
 from playwright.async_api import Page
 from ..models import (
     ApplicationForm,
@@ -9,6 +10,7 @@ from ..models import (
     SubmissionResult,
     ConfirmationResult,
 )
+from ..state import BrowserState, RunContext, StateHandlerResult
 
 
 class ATSAdapter(ABC):
@@ -54,4 +56,24 @@ class ATSAdapter(ABC):
     @abstractmethod
     def get_name(self) -> str:
         """Adapter name for logging"""
+        pass
+
+    # -- State machine layer, built on top of the primitives above --
+
+    @abstractmethod
+    async def detect_state(self, page: Page) -> Tuple[BrowserState, float]:
+        """Classify the current page as a BrowserState with a confidence score in [0, 1].
+
+        Must combine multiple signals (URL, headings, buttons, form structure)
+        rather than a single selector - see GenericAdapter for the reference
+        multi-signal implementation. Return (BrowserState.UNKNOWN, score) when
+        not confident rather than guessing.
+        """
+        pass
+
+    @abstractmethod
+    async def handle_state(self, state: BrowserState, page: Page, ctx: RunContext) -> StateHandlerResult:
+        """Take whatever action advances past `state` (click Apply, fill+submit
+        login, etc). Dispatches internally to per-state handler methods -
+        callers only need this one entry point."""
         pass
