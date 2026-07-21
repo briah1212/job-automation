@@ -79,7 +79,18 @@ class GenericAdapter(ATSAdapter):
         return True
 
     async def _find_visible_form(self, page: Page) -> Optional[ElementHandle]:
-        return await page.query_selector("form:visible")
+        form = await page.query_selector("form:visible")
+        if form:
+            return form
+        # Many modern SPA-based ATS application pages don't use a semantic
+        # <form> at all - confirmed live against a real Ashby posting: zero
+        # <form> elements anywhere on the page, but 11 real, fillable
+        # visible inputs sitting in plain <div>s (fields submitted via
+        # fetch/JS from component state, not native form submission).
+        # Falling back to the whole visible body as the field-scanning
+        # container means those still get found, instead of every
+        # field-filling handler unconditionally raising on any such page.
+        return await page.query_selector("body")
 
     async def inspect_form(self, page: Page) -> ApplicationForm:
         """Extract generic form schema from whichever form is actually visible"""

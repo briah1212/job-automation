@@ -282,7 +282,24 @@ class BrowserWorker:
                     return {"success": True, "status": "awaiting_approval", "state": state.value, "session_id": ctx.session_id}
                 return await self._do_submit(page, adapter, ctx)
 
-            result = await adapter.handle_state(state, page, ctx)
+            try:
+                result = await adapter.handle_state(state, page, ctx)
+            except Exception as exc:
+                # A handler touches live, unpredictable real-site DOM
+                # (inspect_form, fill_field, upload_document, ...) - an
+                # uncaught exception here previously crashed the whole task
+                # to a hard WorkflowStatus.failed instead of the graceful
+                # manual_intervention pause every other failure mode gets
+                # (confirmed live: inspect_form's "No visible form found on
+                # page" ValueError propagated all the way out). The state
+                # machine's entire premise is that automation never fails
+                # silently/uncontrolled - any handler exception must
+                # degrade to the same human-review path as a handled
+                # failure, not bypass it.
+                logger.exception(f"Handler for {state.value} raised an unexpected exception")
+                ctx.log_action("handle_state", state=state.value, success=False, error=str(exc))
+                return await self._escalate(page, ctx, PauseReason.REPEATED_FAILURE, f"handler for {state.value} raised: {exc}")
+
             ctx.log_action("handle_state", state=state.value, success=result.success, error=result.error)
             if not result.success:
                 return await self._escalate(page, ctx, PauseReason.REPEATED_FAILURE, result.error or f"handler for {state.value} failed")
