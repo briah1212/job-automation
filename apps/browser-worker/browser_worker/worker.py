@@ -4,7 +4,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Optional
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page, TimeoutError as PlaywrightTimeoutError
 from .models import ApplicationData, Checkpoint
 from .adapters import MockATSAdapter, GenericAdapter
 from .services import FormInspector, FieldMapper, CheckpointManager
@@ -98,6 +98,28 @@ class BrowserWorker:
             tenant_key=tenant_key,
         )
 
+    async def _navigate(self, page: Page, url: str) -> None:
+        """Navigate and wait for the network to settle - but a real, live
+        page (confirmed against Epic's real Avature-hosted application
+        portal, and matching Workday's /apply route earlier this session)
+        can carry persistent background network activity (polling,
+        analytics, websockets) that means "networkidle" never fires within
+        any reasonable timeout, even though the navigation itself has
+        already completed and the page is genuinely usable. Before this,
+        that timeout was unhandled and crashed the entire task to a hard
+        failed status before the state machine ever got a chance to run -
+        exactly the "automation fails silently/uncontrolled" outcome this
+        whole architecture exists to prevent. A timeout here just means
+        "give up waiting for quiet", not "the page failed to load" - only
+        re-raise if the navigation itself didn't happen (DNS/connection
+        errors, invalid URLs, etc.), which surface as some other exception
+        type entirely.
+        """
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+        except PlaywrightTimeoutError:
+            logger.warning(f"networkidle wait timed out navigating to {url} - proceeding anyway (page likely still usable)")
+
     async def run(self, ctx: RunContext) -> dict:
         """Fresh start: navigate to ctx.application_url and run from LANDING."""
         async with async_playwright() as p:
@@ -110,7 +132,7 @@ class BrowserWorker:
                 try:
                     page = await context.new_page()
                     logger.info(f"Navigating to {ctx.application_url}")
-                    await page.goto(ctx.application_url, wait_until="networkidle", timeout=30000)
+                    await self._navigate(page, ctx.application_url)
                     await dismiss_cookie_consent(page)
                     adapter = await self._detect_adapter(page)
                     logger.info(f"Using adapter: {adapter.get_name()}")
@@ -150,7 +172,7 @@ class BrowserWorker:
                 context = await browser.new_context(viewport={"width": 1280, "height": 720})
                 try:
                     page = await context.new_page()
-                    await page.goto(navigate_url, wait_until="networkidle", timeout=30000)
+                    await self._navigate(page, navigate_url)
                     await dismiss_cookie_consent(page)
                     adapter = await self._detect_adapter(page)
 
