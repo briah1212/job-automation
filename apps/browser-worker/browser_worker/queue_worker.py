@@ -179,6 +179,11 @@ def _build_application_data(application: Application, db: Session) -> Applicatio
         work_authorization=profile.work_authorization,
         resume_path=resume_path,
         interest=cover_letter.content if cover_letter else None,
+        address_line1=profile.address_line1,
+        city=profile.city,
+        state=profile.state,
+        zip_code=profile.postal_code,
+        country=profile.country,
     )
 
 

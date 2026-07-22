@@ -77,4 +77,16 @@ class ApplicationData(BaseModel):
     work_authorization: str
     resume_path: str
     interest: Optional[str] = None
+    # Logistics facts (Profile gained these in the same session that added
+    # this) - without them here, FieldMapper's already-existing "city"/
+    # "state"/"zip_code"/"country"/"address" canonical rules have nothing
+    # to actually resolve against, and a real, legitimate, low-risk field
+    # like "Country" pauses to ask the user every single time instead of
+    # ever being answerable from data already on file (confirmed live
+    # against a real Epic/Avature application question).
+    address_line1: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
     custom_fields: Optional[dict] = None
