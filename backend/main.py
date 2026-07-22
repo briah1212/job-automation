@@ -19,6 +19,7 @@ from app.api.routes import (
     resume_rendering,
     resume_tailoring,
     resumes,
+    reusable_answers,
     search_profiles,
     workflows,
 )
@@ -56,6 +57,7 @@ app.include_router(internal_dynamic_questions.router, prefix="/api")
 app.include_router(internal_field_mappings.router, prefix="/api")
 app.include_router(field_mappings.router, prefix="/api")
 app.include_router(search_profiles.router, prefix="/api")
+app.include_router(reusable_answers.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 
 
