@@ -8,6 +8,7 @@ from app.models.ats_credential import AtsCredential, AtsCredentialStatus
 from app.models.audit import AuditEvent
 from app.models.browser_checkpoint import BrowserCheckpoint
 from app.models.browser_session import BrowserPauseReason, BrowserSession, BrowserSessionStatus
+from app.models.company_watch import CompanyWatch
 from app.models.cover_letter import CoverLetter
 from app.models.document_lock import DocumentLock
 from app.models.document_rendering import DocumentRendering
@@ -59,4 +60,5 @@ __all__ = [
     "AtsCredential",
     "AtsCredentialStatus",
     "FieldMapping",
+    "CompanyWatch",
 ]

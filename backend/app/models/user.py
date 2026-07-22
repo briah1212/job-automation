@@ -32,3 +32,4 @@ class User(Base):
     job_match_scores = relationship("JobMatchScore", back_populates="user", cascade="all, delete-orphan")
     profile_facts = relationship("ProfileFact", back_populates="user", cascade="all, delete-orphan")
     reusable_answers = relationship("ReusableAnswer", back_populates="user", cascade="all, delete-orphan")
+    company_watches = relationship("CompanyWatch", back_populates="user", cascade="all, delete-orphan")
