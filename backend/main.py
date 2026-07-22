@@ -9,6 +9,7 @@ from app.api.routes import (
     applications,
     auth,
     browser_automation,
+    company_watches,
     cover_letter,
     internal_ats_credentials,
     internal_dynamic_questions,
@@ -58,6 +59,7 @@ app.include_router(internal_field_mappings.router, prefix="/api")
 app.include_router(field_mappings.router, prefix="/api")
 app.include_router(search_profiles.router, prefix="/api")
 app.include_router(reusable_answers.router, prefix="/api")
+app.include_router(company_watches.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 
 

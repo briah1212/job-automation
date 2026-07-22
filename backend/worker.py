@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime
 
 import httpx
@@ -24,6 +25,7 @@ from app.agents.classification_agent import ClassificationAgent
 from app.agents.extraction_agent import ExtractionAgent
 from app.core.database import SessionLocal
 from app.models import CanonicalJob, JobStatus, WorkflowStatus, WorkflowTask
+from app.services.job_discovery import run_discovery_cycle
 from app.services.seniority_heuristic import infer_seniority
 
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +35,10 @@ _HTTP_TIMEOUT_SECONDS = 10.0
 _USER_AGENT = "job-automation-worker/1.0 (+https://github.com/brianhsu/job-automation)"
 _MAX_DESCRIPTION_CHARS = 5000
 _POLL_INTERVAL_SECONDS = 5
+# Discovery hits real third-party APIs, so it runs far less often than the
+# task poll - every 15 minutes is frequent enough to catch new postings
+# same-day without hammering Greenhouse/Lever/Ashby's public endpoints.
+_DISCOVERY_INTERVAL_SECONDS = 900
 
 _HTML_TAG_RE = re.compile(r"<[^<]+?>")
 
@@ -71,11 +77,19 @@ async def process_extraction_task(task: WorkflowTask, db: Session) -> None:
         extracted_data = dict(job.extracted_data or {})
         url = extracted_data.get("url")
 
-        fetch_succeeded = False
-        if url:
+        # Discovery (job_discovery.py) already pulls clean description text
+        # straight from the ATS's own public API when it creates this job -
+        # reusing it here means real extraction quality for a discovered
+        # job, instead of either an httpx GET of a JS-rendered SPA shell
+        # (Ashby, Lever) or a redundant second fetch of a page discovery
+        # already had the real content for.
+        pre_fetched = extracted_data.get("raw_content")
+        if pre_fetched:
+            raw_text, fetch_succeeded = pre_fetched, True
+        elif url:
             raw_text, fetch_succeeded = await _fetch_raw_text(url)
         else:
-            raw_text = ""
+            raw_text, fetch_succeeded = "", False
 
         if not fetch_succeeded:
             extracted_data["fetch_warning"] = (
@@ -148,10 +162,25 @@ async def process_extraction_task(task: WorkflowTask, db: Session) -> None:
 
 
 async def poll_loop() -> None:
-    """Continuously poll for pending job_extraction WorkflowTasks and process them."""
+    """Continuously poll for pending job_extraction WorkflowTasks and process
+    them, and periodically run job discovery across every enabled
+    CompanyWatch (see _DISCOVERY_INTERVAL_SECONDS) - one process, two
+    independent cadences: task-polling stays fast (5s) since it's reacting
+    to work already queued, discovery stays slow (15min) since it's the one
+    making outbound calls to real third-party APIs."""
+    last_discovery_at = 0.0
     while True:
         db = SessionLocal()
         try:
+            now = time.monotonic()
+            if now - last_discovery_at >= _DISCOVERY_INTERVAL_SECONDS:
+                last_discovery_at = now
+                try:
+                    stats = await run_discovery_cycle(db)
+                    logger.info("Discovery cycle complete: %s", stats)
+                except Exception:
+                    logger.exception("Unhandled error running discovery cycle; continuing poll loop")
+
             task = (
                 db.query(WorkflowTask)
                 .filter(
