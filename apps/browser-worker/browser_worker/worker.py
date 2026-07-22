@@ -18,8 +18,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MAX_TRANSITIONS = 40
-MAX_WALL_CLOCK_SECONDS = 900
+# Tuned against the mock-ats fixture and the first four real ATS platforms
+# validated (Workday, Greenhouse, Lever, Ashby) - all comfortably finished
+# well inside the old budget (40 transitions / 900s). A real, very long
+# single-flow application form (confirmed live: Epic's real Avature-hosted
+# "Employment Inquiry" section alone has 17+ fields, several needing an
+# agent call each, and doesn't persist progress server-side until its own
+# internal "Next" completes - hitting the budget mid-section silently
+# discards that section's unsaved work, which then has to be redone from
+# scratch on the next attempt) can need meaningfully more of both.
+MAX_TRANSITIONS = 80
+MAX_WALL_CLOCK_SECONDS = 1800
 MAX_UNKNOWN_STREAK = 3
 
 # run_state_machine's own MAX_WALL_CLOCK_SECONDS check only runs between loop

@@ -35,6 +35,7 @@ from app.models import (
 
 from .models import ApplicationData
 from .worker import BrowserWorker
+from .worker import _HARD_TIMEOUT_SECONDS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,7 +43,16 @@ logger = logging.getLogger(__name__)
 _POLL_INTERVAL_SECONDS = 5
 _WORKFLOW_TYPE = "browser_submission"
 _STORAGE_ROOT = "/app/storage"
-_STALE_RUNNING_THRESHOLD_SECONDS = 1800
+# Must stay comfortably above worker.py's own _HARD_TIMEOUT_SECONDS - a
+# legitimately still-running task (which can take up to that long before
+# self-terminating) must never get reclaimed as "stuck" while it's still
+# actually executing; that would let a second poll pick up the same
+# session concurrently. Derived from the real constant instead of a
+# separate hardcoded number specifically so the two can't drift out of
+# sync again the way they briefly did here (a real long-form application -
+# Epic's real Avature-hosted careers portal - needed MAX_WALL_CLOCK_SECONDS
+# raised well past what this threshold had assumed).
+_STALE_RUNNING_THRESHOLD_SECONDS = _HARD_TIMEOUT_SECONDS + 300
 
 
 def _get_or_create_browser_session(db: Session, application: Application, task: WorkflowTask, session_key: str) -> BrowserSession:
