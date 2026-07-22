@@ -794,9 +794,26 @@ class GenericAdapter(ATSAdapter):
             )
         return StateHandlerResult(success=True)
 
-    async def _handle_apply(self, page: Page, ctx: RunContext) -> StateHandlerResult:
+    async def _ensure_credential(self, ctx: RunContext) -> Optional[StateHandlerResult]:
+        """Fetch/create the vault credential if it isn't already set.
+
+        Normally happens once, in _handle_apply. But a real ATS can skip
+        straight from some earlier state (resume upload, in this case)
+        directly to a login/register FORM with no distinct "apply" landing
+        step in between to have run _handle_apply at all - confirmed live
+        against Epic's real Avature-hosted careers portal, which goes
+        resume-upload -> register form directly. Without this, _handle_login/
+        _handle_create_account had no credential to fill and could only
+        fail with "No credential available" on every such site, forever.
+
+        Returns an error result if the fetch failed or the credential isn't
+        usable; None if ctx.credential is now populated (whether it already
+        was, or was freshly fetched here).
+        """
+        if ctx.credential:
+            return None
         try:
-            credential = await get_or_create_credential(
+            ctx.credential = await get_or_create_credential(
                 user_id=ctx.user_id,
                 ats_platform=ctx.ats_platform,
                 tenant_key=ctx.tenant_key,
@@ -805,14 +822,19 @@ class GenericAdapter(ATSAdapter):
         except Exception as exc:
             return StateHandlerResult(success=False, error=f"Credential vault lookup failed: {exc}")
 
-        ctx.credential = credential
-        if credential["status"] != "active":
+        if ctx.credential["status"] != "active":
             return StateHandlerResult(
                 success=False,
-                error=f"Existing credential for this tenant is in state '{credential['status']}' - not safe to retry automatically",
+                error=f"Existing credential for this tenant is in state '{ctx.credential['status']}' - not safe to retry automatically",
             )
+        return None
 
-        words = ("create account", "sign up", "register") if credential["created"] else ("log in", "sign in")
+    async def _handle_apply(self, page: Page, ctx: RunContext) -> StateHandlerResult:
+        error = await self._ensure_credential(ctx)
+        if error:
+            return error
+
+        words = ("create account", "sign up", "register") if ctx.credential["created"] else ("log in", "sign in")
         btn = await self._find_button_by_words(page, words)
         if not btn:
             return StateHandlerResult(success=False, error="Could not find login/signup entry point")
@@ -820,8 +842,9 @@ class GenericAdapter(ATSAdapter):
         return StateHandlerResult(success=True)
 
     async def _fill_credential_form(self, page: Page, ctx: RunContext) -> StateHandlerResult:
-        if not ctx.credential:
-            return StateHandlerResult(success=False, error="No credential available")
+        error = await self._ensure_credential(ctx)
+        if error:
+            return error
 
         form = await self.inspect_form(page)
         password_fields = [f for f in form.fields if f.input_type == "password"]
