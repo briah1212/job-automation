@@ -110,6 +110,64 @@ class CheckpointManager:
         checkpoints = [f.stem for f in session_dir.glob("*.json") if f.name != "latest.json"]
         return sorted(checkpoints)
 
+    def save_storage_state(self, session_id: str, state: dict) -> None:
+        """Persist Playwright's storage_state (cookies + localStorage) so a
+        later resume() can restore it instead of always starting from a
+        brand-new, cookie-less browser - required for any real ATS whose
+        multi-step flow depends on server-side session cookies (confirmed
+        live against Epic's real Avature-hosted careers portal: navigating
+        fresh to the same checkpointed URL with no cookies landed on a
+        different wizard step than where the prior attempt left off, not
+        the same one). Best-effort: a failure here must not block the
+        resume-critical parts of a run from completing."""
+        try:
+            if self._durable:
+                self._save_storage_state_durable(state)
+            else:
+                self._save_storage_state_local(session_id, state)
+        except Exception as exc:
+            logger.warning(f"Failed to save storage state for session {session_id} (non-fatal): {exc}")
+
+    def load_storage_state(self, session_id: str) -> Optional[dict]:
+        """Load previously-saved storage_state, if any. None means "start
+        with a fresh browser identity" - the normal case for a brand-new
+        run, not an error."""
+        try:
+            if self._durable:
+                return self._load_storage_state_durable()
+            return self._load_storage_state_local(session_id)
+        except Exception as exc:
+            logger.warning(f"Failed to load storage state for session {session_id} (non-fatal): {exc}")
+            return None
+
+    def _save_storage_state_durable(self, state: dict) -> None:
+        from app.models import BrowserSession
+
+        session = self._db.query(BrowserSession).filter(BrowserSession.id == self._browser_session_id).first()
+        if session is None:
+            return
+        session.storage_state = state
+        self._db.commit()
+
+    def _load_storage_state_durable(self) -> Optional[dict]:
+        from app.models import BrowserSession
+
+        session = self._db.query(BrowserSession).filter(BrowserSession.id == self._browser_session_id).first()
+        return session.storage_state if session else None
+
+    def _save_storage_state_local(self, session_id: str, state: dict) -> None:
+        session_dir = self.checkpoint_dir / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        with open(session_dir / "storage_state.json", "w") as f:
+            json.dump(state, f)
+
+    def _load_storage_state_local(self, session_id: str) -> Optional[dict]:
+        path = self.checkpoint_dir / session_id / "storage_state.json"
+        if not path.exists():
+            return None
+        with open(path) as f:
+            return json.load(f)
+
     # -- Durable (Postgres + MinIO) backend --
 
     async def _store_screenshot_durable(self, session_id: str, step: str, timestamp: datetime, data: bytes) -> Optional[str]:

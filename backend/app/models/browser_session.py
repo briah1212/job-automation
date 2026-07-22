@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, Enum, ForeignKey, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -53,6 +53,17 @@ class BrowserSession(Base):
 
     status = Column(Enum(BrowserSessionStatus), nullable=False, index=True)
     pause_reason = Column(Enum(BrowserPauseReason), nullable=True)
+
+    # Playwright storage_state (cookies + localStorage) captured at the end
+    # of every run/resume - lets a later resume() restore real session
+    # state instead of always starting from a brand-new, cookie-less
+    # browser. Not encrypted at rest (unlike AtsCredential, which browser-
+    # worker never decrypts itself): browser-worker is the only process
+    # that ever needs the plaintext value, and it already has direct DB
+    # access for checkpoint data of comparable sensitivity (filled_fields,
+    # form_state). A real hardening pass would want this encrypted the
+    # same way credentials are - tracked as a known gap, not fixed here.
+    storage_state = Column(JSONB, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

@@ -110,3 +110,34 @@ def test_does_not_redact_ordinary_short_numeric_values():
     assert result["phone"] == "555-0123"
     assert result["zip"] == "94105"
     assert result["grad_year"] == "2020"
+
+
+def test_storage_state_round_trips_in_local_fallback_mode(tmp_path):
+    """Playwright storage_state (cookies + localStorage) must survive a
+    save/load round trip - what lets resume() restore real session state
+    instead of always starting from a brand-new, cookie-less browser (see
+    worker.py's _persist_storage_state)."""
+    cm = CheckpointManager(checkpoint_dir=str(tmp_path))
+    state = {"cookies": [{"name": "session_id", "value": "abc123", "domain": "example.com"}], "origins": []}
+
+    cm.save_storage_state("session-1", state)
+    loaded = cm.load_storage_state("session-1")
+
+    assert loaded == state
+
+
+def test_load_storage_state_returns_none_when_nothing_saved(tmp_path):
+    cm = CheckpointManager(checkpoint_dir=str(tmp_path))
+    assert cm.load_storage_state("never-saved-session") is None
+
+
+def test_save_storage_state_does_not_raise_on_failure(tmp_path, monkeypatch):
+    """Best-effort: a failure capturing/writing storage state must not
+    propagate and break the run that's ending."""
+    cm = CheckpointManager(checkpoint_dir=str(tmp_path))
+
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cm, "_save_storage_state_local", boom)
+    cm.save_storage_state("session-1", {"cookies": []})  # must not raise

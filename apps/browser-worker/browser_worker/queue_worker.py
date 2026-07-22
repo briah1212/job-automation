@@ -86,6 +86,11 @@ def _get_or_create_browser_session(db: Session, application: Application, task: 
             session.status = BrowserSessionStatus.active
             session.browser_state = "queued"
             session.pause_reason = None
+            # A resubmission is a deliberate "start over" - stale cookies
+            # from the previous (irrelevant) attempt could resume() into a
+            # confusing half-completed state on the real site instead of a
+            # genuinely clean run.
+            session.storage_state = None
             db.commit()
             db.refresh(session)
         return session

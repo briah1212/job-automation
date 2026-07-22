@@ -40,6 +40,15 @@ _HARD_TIMEOUT_SECONDS = MAX_WALL_CLOCK_SECONDS + 120
 # there's any last_known_state to fall back on.
 _FIRST_DETECTION_SETTLE_TIMEOUT_MS = 4000
 
+# Shared between run() and resume() deliberately: a resumed session restores
+# real cookies via storage_state (see _persist_storage_state), and a
+# different user agent showing up against the same session cookie is
+# exactly the kind of anomaly a real site's session-security checks are
+# built to flag - resume() using a different UA than the run() that
+# actually established the session would undermine the whole point of
+# restoring it.
+_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
 
 class BrowserWorker:
     """Browser automation state machine.
@@ -120,6 +129,19 @@ class BrowserWorker:
         except PlaywrightTimeoutError:
             logger.warning(f"networkidle wait timed out navigating to {url} - proceeding anyway (page likely still usable)")
 
+    async def _persist_storage_state(self, context: BrowserContext, ctx: RunContext) -> None:
+        """Capture cookies/localStorage before the context closes, so a
+        later resume() can restore real session state instead of always
+        starting from a brand-new, cookie-less browser - see
+        CheckpointManager.save_storage_state's docstring for why this
+        matters. Called from a finally block, so a failure here must never
+        raise (would mask whatever the real run result/error was)."""
+        try:
+            state = await context.storage_state()
+            self.checkpoint_manager.save_storage_state(ctx.session_id, state)
+        except Exception as exc:
+            logger.warning(f"Failed to capture storage state (non-fatal): {exc}")
+
     async def run(self, ctx: RunContext) -> dict:
         """Fresh start: navigate to ctx.application_url and run from LANDING."""
         async with async_playwright() as p:
@@ -127,7 +149,7 @@ class BrowserWorker:
             try:
                 context = await browser.new_context(
                     viewport={"width": 1280, "height": 720},
-                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                    user_agent=_USER_AGENT,
                 )
                 try:
                     page = await context.new_page()
@@ -138,6 +160,7 @@ class BrowserWorker:
                     logger.info(f"Using adapter: {adapter.get_name()}")
                     return await self._run_state_machine_with_timeout(page, adapter, ctx)
                 finally:
+                    await self._persist_storage_state(context, ctx)
                     await context.close()
             finally:
                 await browser.close()
@@ -165,11 +188,16 @@ class BrowserWorker:
         # live verification run: replay tried to fill fields on a page that
         # was still showing LANDING because navigation used application_url.
         navigate_url = checkpoint.url if checkpoint else ctx.application_url
+        storage_state = self.checkpoint_manager.load_storage_state(ctx.session_id)
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
             try:
-                context = await browser.new_context(viewport={"width": 1280, "height": 720})
+                context_kwargs = {"viewport": {"width": 1280, "height": 720}, "user_agent": _USER_AGENT}
+                if storage_state:
+                    context_kwargs["storage_state"] = storage_state
+                    logger.info("Restoring browser session state from a prior run")
+                context = await browser.new_context(**context_kwargs)
                 try:
                     page = await context.new_page()
                     await self._navigate(page, navigate_url)
@@ -195,6 +223,7 @@ class BrowserWorker:
 
                     return await self._run_state_machine_with_timeout(page, adapter, ctx)
                 finally:
+                    await self._persist_storage_state(context, ctx)
                     await context.close()
             finally:
                 await browser.close()
