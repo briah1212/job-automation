@@ -36,6 +36,24 @@ _COMBINED_SIGNIN_REGISTER_PAGE = """
 </body></html>
 """
 
+# Mirrors the real, live-captured Epic/Avature structure exactly: one
+# unified button handles both login and registration - the site decides
+# which based on whether the email is already known - so there is no
+# separate register-worded control to find at all.
+_UNIFIED_BUTTON_PAGE = """
+<html><body>
+  <header>
+    <a href="/login">Log in</a>
+  </header>
+  <form onsubmit="return false">
+    <h1>Sign in or register your account below.</h1>
+    <label for="username">Email</label><input type="email" id="username" name="username">
+    <label for="password">Password</label><input type="password" id="password" name="password">
+    <button type="submit" id="signin-btn">Sign In</button>
+  </form>
+</body></html>
+"""
+
 
 @pytest.fixture
 async def pw_page():
@@ -97,3 +115,18 @@ async def test_button_search_can_be_scoped_to_a_container(pw_page):
     form = await pw_page.query_selector("form")
     scoped = await adapter._find_button_by_words(pw_page, ("log in",), scope=form)
     assert scoped is None  # the form has no "log in"-worded control at all
+
+
+@pytest.mark.asyncio
+async def test_falls_back_to_unified_button_when_no_dedicated_register_control_exists(pw_page):
+    """A brand-new credential still needs to submit through a page whose
+    ONLY control is a "Sign In" button that the site itself will treat as
+    "register" for an unrecognized email (confirmed live: Epic's real
+    Avature-hosted careers portal has exactly this shape) - must not fail
+    outright just because no register-worded control exists to prefer."""
+    await pw_page.set_content(_UNIFIED_BUTTON_PAGE, wait_until="domcontentloaded")
+    ctx = _make_ctx(created=True)
+
+    result = await GenericAdapter()._handle_login(pw_page, ctx)
+
+    assert result.success is True

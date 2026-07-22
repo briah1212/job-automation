@@ -880,10 +880,21 @@ class GenericAdapter(ATSAdapter):
         # wrong one for a brand-new account fails validation (no such
         # account exists yet) and just re-renders the same page forever.
         form_element = await self._find_visible_form(page)
+        opposite_intent_words = ("log in", "sign in") if ctx.credential["created"] else ("create account", "sign up", "register")
         preferred_words = ("create account", "sign up", "register") if ctx.credential["created"] else ("log in", "sign in")
         submit_btn = await self._find_button_by_words(page, preferred_words, scope=form_element)
         if not submit_btn:
-            submit_btn = await self._find_button_by_words(page, _SUBMIT_BUTTON_WORDS + preferred_words, scope=form_element)
+            submit_btn = await self._find_button_by_words(page, _SUBMIT_BUTTON_WORDS, scope=form_element)
+        if not submit_btn:
+            # Some real sites (confirmed live: Epic's real Avature-hosted
+            # careers portal) use ONE unified button for both login and
+            # registration - the site itself decides which based on
+            # whether the email is already known, so there's no
+            # dedicated register-worded control to prefer. Falling back to
+            # the opposite intent's wording rather than giving up outright
+            # - still tried last, after every chance to find the
+            # genuinely correct one first.
+            submit_btn = await self._find_button_by_words(page, opposite_intent_words, scope=form_element)
         if not submit_btn:
             return StateHandlerResult(success=False, error="No submit control found on credential form")
         await submit_btn.click()
