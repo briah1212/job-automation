@@ -92,9 +92,40 @@ class GenericAdapter(ATSAdapter):
         # field-filling handler unconditionally raising on any such page.
         return await page.query_selector("body")
 
+    async def _resolve_label(self, page: Page, input_elem: ElementHandle, input_id: Optional[str]) -> Optional[str]:
+        """<label for=id> first, then the DOM-sibling fallback, cleaned of
+        a trailing required-marker - shared by every field type (including
+        each option inside a radio group, where it resolves that option's
+        own choice text rather than the group's question)."""
+        try:
+            resolved = None
+            if input_id:
+                label_elem = await page.query_selector(f'label[for="{input_id}"]')
+                if label_elem:
+                    resolved = await label_elem.text_content()
+            if not resolved:
+                resolved = await input_elem.evaluate(_SIBLING_LABEL_JS)
+            if resolved:
+                cleaned = _TRAILING_REQUIRED_MARKER_RE.sub("", resolved).strip()
+                return cleaned or None
+        except Exception:
+            pass
+        return None
+
     async def inspect_form(self, page: Page) -> ApplicationForm:
         """Extract generic form schema from whichever form is actually visible"""
         fields = []
+        # Radio buttons share one `name` per group and only make sense as a
+        # single choice-of-N field (mirroring how <select> already works),
+        # not as N separate same-named fields each independently "filled" -
+        # collected here and added once after the main loop. Confirmed live
+        # against a real Ashby posting: a "willing to relocate?" question
+        # rendered as two real <input type=radio> options, which the main
+        # loop's generic `page.fill()` fallback can't fill at all (fill()
+        # only works on text-like inputs), so the field was silently
+        # skipped every single pass, forever - a real, blocking gap for a
+        # question shape this common.
+        radio_groups: dict = {}
 
         form = await self._find_visible_form(page)
         if not form:
@@ -124,24 +155,20 @@ class GenericAdapter(ATSAdapter):
             if input_type in ["submit", "button"]:
                 continue
 
+            if input_type == "radio":
+                if not name:
+                    continue  # can't group same-choice radios without a shared name
+                option_label = await self._resolve_label(page, input_elem, input_id)
+                group = radio_groups.setdefault(name, {"options": [], "required": False})
+                if option_label and option_label not in group["options"]:
+                    group["options"].append(option_label)
+                if await input_elem.get_attribute("required") is not None:
+                    group["required"] = True
+                continue
+
             required = await input_elem.get_attribute("required") is not None
             placeholder = await input_elem.get_attribute("placeholder")
-
-            label_text = identifier.replace("_", " ").replace("-", " ").title()
-            try:
-                resolved_label = None
-                if input_id:
-                    label_elem = await page.query_selector(f'label[for="{input_id}"]')
-                    if label_elem:
-                        resolved_label = await label_elem.text_content()
-                if not resolved_label:
-                    resolved_label = await input_elem.evaluate(_SIBLING_LABEL_JS)
-                if resolved_label:
-                    cleaned = _TRAILING_REQUIRED_MARKER_RE.sub("", resolved_label).strip()
-                    if cleaned:
-                        label_text = cleaned
-            except Exception:
-                pass
+            label_text = await self._resolve_label(page, input_elem, input_id) or identifier.replace("_", " ").replace("-", " ").title()
 
             options = None
             if input_type == "select":
@@ -163,6 +190,37 @@ class GenericAdapter(ATSAdapter):
                     options=options,
                     placeholder=placeholder,
                     selector=selector,
+                )
+            )
+
+        for group_name, group in radio_groups.items():
+            if not group["options"]:
+                continue
+            first_radio = await form.query_selector(f'input[type="radio"][name="{group_name}"]')
+            question_label = group_name.replace("_", " ").title()
+            if first_radio:
+                try:
+                    resolved = await first_radio.evaluate(
+                        """el => {
+                            const fs = el.closest('fieldset');
+                            if (!fs) return null;
+                            const legend = fs.querySelector('legend, label');
+                            return legend ? legend.textContent.trim() : null;
+                        }"""
+                    )
+                    if resolved:
+                        question_label = _TRAILING_REQUIRED_MARKER_RE.sub("", resolved).strip() or question_label
+                except Exception:
+                    pass
+            fields.append(
+                FormField(
+                    name=group_name,
+                    label=question_label,
+                    input_type="radio",
+                    required=group["required"],
+                    options=group["options"],
+                    placeholder=None,
+                    selector=f'input[type="radio"][name="{group_name}"]',
                 )
             )
 
@@ -198,6 +256,25 @@ class GenericAdapter(ATSAdapter):
                     field=field.name,
                     error="Use upload_document for file fields",
                 )
+            elif field.input_type == "radio":
+                # `value` is one of field.options (an option's own choice
+                # text, resolved the same way select's option values are
+                # matched) - find the specific radio in the group whose
+                # own label matches it and check that one. page.fill()
+                # (the generic fallback below) can't fill a radio at all;
+                # before this, every radio-group question silently failed
+                # to fill, forever, on every real ATS that uses one.
+                radios = await page.query_selector_all(selector)
+                matched = False
+                for radio in radios:
+                    radio_id = await radio.get_attribute("id")
+                    option_label = await self._resolve_label(page, radio, radio_id)
+                    if option_label == value:
+                        await radio.check()
+                        matched = True
+                        break
+                if not matched:
+                    return FillResult(success=False, field=field.name, error=f"No radio option matching {value!r}")
             else:
                 await page.fill(selector, value)
 
