@@ -355,8 +355,16 @@ class GenericAdapter(ATSAdapter):
                 success=False, field=field.name, file_path=file_path, error=str(e)
             )
 
-    async def _find_button_by_words(self, page: Page, words: Tuple[str, ...]) -> Optional[ElementHandle]:
-        candidates = await page.query_selector_all(
+    async def _find_button_by_words(self, page: Page, words: Tuple[str, ...], scope=None) -> Optional[ElementHandle]:
+        """`scope` narrows the search to within a specific container (e.g.
+        the actual <form> being filled) instead of the whole page -
+        matters for a word list like ("log in", "sign in") that's likely
+        to also match an unrelated persistent header/nav link appearing
+        earlier in DOM order than the form's own submit control. Defaults
+        to `page` (whole-page search) for callers that don't have - or
+        don't need - a narrower container."""
+        container = scope or page
+        candidates = await container.query_selector_all(
             "button:visible, input[type='submit']:visible, input[type='button']:visible, a:visible"
         )
         for el in candidates:
@@ -859,7 +867,23 @@ class GenericAdapter(ATSAdapter):
         if confirm_field:
             await self.fill_field(page, confirm_field, ctx.credential["password"])
 
-        submit_btn = await self._find_button_by_words(page, _SUBMIT_BUTTON_WORDS + ("log in", "sign in", "create account"))
+        # Scoped to the actual form being filled, not the whole page - a
+        # word list like ("log in", "sign in") is likely to also match an
+        # unrelated persistent header/nav link that just happens to appear
+        # earlier in DOM order than the form's own submit control (found
+        # live: Epic's real Avature-hosted careers portal has exactly this
+        # - a page-header "Log in" link above a combined "sign in or
+        # register" form). Intent-aware for the same reason _handle_apply
+        # already is: a freshly vault-created credential means this is a
+        # brand-new account that needs to REGISTER, not sign in - a
+        # combined sign-in/register page offers both, and clicking the
+        # wrong one for a brand-new account fails validation (no such
+        # account exists yet) and just re-renders the same page forever.
+        form_element = await self._find_visible_form(page)
+        preferred_words = ("create account", "sign up", "register") if ctx.credential["created"] else ("log in", "sign in")
+        submit_btn = await self._find_button_by_words(page, preferred_words, scope=form_element)
+        if not submit_btn:
+            submit_btn = await self._find_button_by_words(page, _SUBMIT_BUTTON_WORDS + preferred_words, scope=form_element)
         if not submit_btn:
             return StateHandlerResult(success=False, error="No submit control found on credential form")
         await submit_btn.click()
