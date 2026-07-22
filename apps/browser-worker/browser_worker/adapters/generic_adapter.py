@@ -53,25 +53,38 @@ el => {
     return null;
 }
 """
-# True if every ANCESTOR (not the element itself) is visible - deliberately
-# ignores the element's own display/visibility, since a file input is
-# routinely hidden by its own styling behind a separate visible "Upload"
-# trigger. What this must still catch: a whole ancestor container (e.g. an
-# inactive page/stage/step section) being hidden, which means the element
-# isn't part of what's actually on screen at all, regardless of its own
-# styling. See is_genuinely_fillable in field_visibility.py for the sibling
-# concern (honeypot geometry) - this one is specifically about DOM position
-# relative to a fixture/site that renders multiple stages simultaneously.
-_ANCESTORS_VISIBLE_JS = """
-el => {
+# True if no ANCESTOR (not the element itself) hides the element behind
+# substantial alternate content - deliberately ignores the element's own
+# display/visibility, since a file input is routinely hidden by its own
+# styling behind a separate visible "Upload" trigger elsewhere on the same
+# active page. A small hidden ancestor (few descendants) is tolerated and
+# walked past - confirmed live against Epic's real Avature-hosted careers
+# portal, whose actual <input type=file> sits inside a 3-element wrapper
+# div (id="resumeFileField": a <p>, a <label>, the input) that's
+# display:none purely to hide the native control in favor of a separate
+# styled trigger link elsewhere on the SAME visible page. What this must
+# still catch: a whole ancestor representing an entire inactive page/
+# stage/step (the mock-ats fixture renders every stage's markup in the DOM
+# simultaneously and hides inactive ones this way) - those are
+# substantially larger (mock-ats's hidden resume-upload stage has a
+# heading, a form, a label, the input, hint text, and a button: 8
+# elements), so a hidden ancestor above a small size is treated as a real
+# "this isn't the active page" signal instead of a widget-hiding detail.
+_MAX_TOLERATED_HIDDEN_WRAPPER_DESCENDANTS = 6
+
+_ANCESTORS_VISIBLE_JS = f"""
+el => {{
     let node = el.parentElement;
-    while (node) {
+    while (node) {{
         const style = window.getComputedStyle(node);
-        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        const isHidden = style.display === 'none' || style.visibility === 'hidden';
+        if (isHidden && node.querySelectorAll('*').length > {_MAX_TOLERATED_HIDDEN_WRAPPER_DESCENDANTS}) {{
+            return false;
+        }}
         node = node.parentElement;
-    }
+    }}
     return true;
-}
+}}
 """
 # Strips a trailing required-field marker (e.g. Lever's "✱", a plain "*")
 # that's concatenated directly into the label div's text content.

@@ -43,9 +43,16 @@ _MOCK_ATS_LIKE_INACTIVE_STAGE = """
     </form>
   </section>
   <section data-stage="resume-upload" style="display:none;">
+    <h2>Upload Your Resume</h2>
     <form>
-      <label for="resume">Resume</label>
-      <input type="file" id="resume" name="resume">
+      <div class="form-group">
+        <label for="resume">Resume * (PDF only)</label>
+        <input type="file" id="resume" name="resume" accept=".pdf" required>
+        <small>We'll parse this to speed up the rest of your application.</small>
+      </div>
+      <div class="form-actions">
+        <button type="submit">Upload &amp; Continue</button>
+      </div>
     </form>
   </section>
 </body></html>
