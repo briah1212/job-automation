@@ -22,6 +22,19 @@ class FieldMapper:
             (r"last[\s_-]?name", "last_name"),
             (r"family[\s_-]?name", "last_name"),
             (r"surname", "last_name"),
+            # Order matters: checked only after the first/last-name rules
+            # above, so a "First Name" field (which also contains the
+            # substring "name") still matches the more specific rule first.
+            # Covers a single combined name field - increasingly common on
+            # real ATS's (e.g. Ashby's `_systemfield_name`) - which
+            # ApplicationData doesn't carry directly; get_value_for_field
+            # synthesizes it from first_name + last_name.
+            # `\b` alone would miss underscore-adjacent field names like
+            # "_systemfield_name" or "applicant_name" - Python regex treats
+            # `_` as a word character, so there's no boundary between it
+            # and "name". Matches the [\s_-] separator style already used
+            # by every other rule in this list, for the same reason.
+            (r"(?:^|[\s_-])name(?:[\s_-]|$)", "full_name"),
             (r"^email", "email"),
             (r"e[\s_-]?mail", "email"),
             (r"^phone", "phone"),
@@ -117,7 +130,16 @@ class FieldMapper:
         """Get value from application data for field"""
         # First try canonical mapping
         canonical = self.map_to_canonical(field)
-        if canonical and canonical in application_data:
+        if canonical == "full_name":
+            # Not a literal key on ApplicationData - synthesized instead of
+            # falling through to the AI-agent path, which (confirmed live
+            # against a real Ashby posting, AI_PROVIDER=mock) filled a real
+            # applicant's name field with the mock gateway's canned
+            # placeholder text rather than their actual name.
+            full_name = f"{application_data.get('first_name') or ''} {application_data.get('last_name') or ''}".strip()
+            if full_name:
+                return full_name
+        elif canonical and canonical in application_data:
             return application_data[canonical]
 
         # Try direct field name match

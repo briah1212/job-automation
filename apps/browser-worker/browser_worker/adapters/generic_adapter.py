@@ -369,6 +369,22 @@ class GenericAdapter(ATSAdapter):
                 )).some(el => el.offsetParent !== null);
             }"""
         )
+        # The counterpart to has_any_filled_field: is there still a real,
+        # empty, fillable field on the page? Without this, a single-page
+        # form that's partially filled ties APPLICATION against
+        # SUBMIT_READY every single loop (both score 0.5) - APPLICATION
+        # wins the tie (by design, the safe side), but nothing ever
+        # actually changes between iterations once the same fields resolve
+        # to the same values each time, so the run just re-fills the same
+        # data forever until MAX_TRANSITIONS gives up. Confirmed live
+        # against a real Ashby posting: exhausted all 40 transitions stuck
+        # on APPLICATION despite every resolvable field already being
+        # filled correctly.
+        has_unfilled_visible_field = await page.evaluate(
+            """() => Array.from(document.querySelectorAll(
+                "input:not([type=file]):not([type=checkbox]):not([type=radio]):not([type=hidden]), select, textarea"
+            )).some(el => el.offsetParent !== null && (!el.value || el.value.trim().length === 0))"""
+        )
 
         unchecked_required_checkbox = False
         for cb in await page.query_selector_all("input[type='checkbox'][required]:visible"):
@@ -387,6 +403,7 @@ class GenericAdapter(ATSAdapter):
             "has_file_input": has_file_input,
             "resume_already_attached": resume_already_attached,
             "has_any_filled_field": has_any_filled_field,
+            "has_unfilled_visible_field": has_unfilled_visible_field,
             "visible_field_count": len(visible_fields),
             "unchecked_required_checkbox": unchecked_required_checkbox,
             "body_text": body_text,
@@ -548,6 +565,20 @@ class GenericAdapter(ATSAdapter):
             # moment the page renders, long before anything's been typed,
             # and a resume being attached doesn't mean the rest of the
             # form's required fields (name, email, custom questions) are.
+            return 0.0
+        if s["has_unfilled_visible_field"]:
+            # There's still a real, empty, fillable field visible - not
+            # remotely ready to submit yet, no matter how confidently the
+            # buttons/headings below would otherwise score it. Without
+            # this, a partially-filled single-page form ties APPLICATION
+            # against SUBMIT_READY every loop (APPLICATION wins the tie,
+            # the safe side, but nothing changes between iterations once
+            # every resolvable field keeps resolving to the same value) -
+            # the run just re-fills the same data forever until
+            # MAX_TRANSITIONS gives up, confirmed live against a real
+            # Ashby posting. Scoring 0 here instead of tying lets
+            # APPLICATION win outright while work remains, and only
+            # SUBMIT_READY once it's actually, verifiably done.
             return 0.0
         score = 0.0
         if any(w in b for b in s["buttons"] for w in _SUBMIT_BUTTON_WORDS):
