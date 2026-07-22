@@ -231,8 +231,23 @@ class GenericAdapter(ATSAdapter):
                 options = []
                 for opt in option_elems:
                     value = await opt.get_attribute("value")
-                    if value:
-                        options.append(value)
+                    if not value:
+                        continue
+                    # The option's human-readable text, not its `value`
+                    # attribute - real ATS's routinely use an opaque
+                    # numeric/UUID value with the actual meaning only in
+                    # the text content (confirmed live: Epic's real
+                    # Avature-hosted careers portal has
+                    # value="28074">Bachelor's Degree...). Matching
+                    # against raw IDs like "28074" meant an agent's or a
+                    # human's answer could never confidently map to any
+                    # select on such a site - every constrained-choice
+                    # question deferred to the user regardless of how
+                    # good the answer was, even an exact, previously-
+                    # approved one. fill_field selects by this same label
+                    # text now, not by value.
+                    text = (await opt.text_content() or "").strip()
+                    options.append(text or value)
 
             selector = f'[name="{name}"]' if name else f'#{input_id}'
 
@@ -297,7 +312,12 @@ class GenericAdapter(ATSAdapter):
             selector = field.selector
 
             if field.input_type == "select":
-                await page.select_option(selector, value)
+                # By label, not value - field.options now holds each
+                # option's human-readable text (see inspect_form), since
+                # a real site's `value` attribute is routinely an opaque
+                # ID with no relationship to what an answer would ever
+                # contain.
+                await page.select_option(selector, label=value)
             elif field.input_type == "textarea":
                 await page.fill(selector, value)
             elif field.input_type == "checkbox":
