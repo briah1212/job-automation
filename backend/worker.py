@@ -105,17 +105,29 @@ async def process_extraction_task(task: WorkflowTask, db: Session) -> None:
             user_id=user_id,
         )
         classification = await ClassificationAgent().classify(
-            title=extracted.get("title") or "",
+            title=job.title or extracted.get("title") or "",
             responsibilities=extracted.get("responsibilities") or [],
             user_id=user_id,
         )
 
+        # A job discovered via a company watch already has authoritative
+        # company/title/location straight from the ATS's own structured API
+        # (see job_discovery.py) - the extraction agent's job for these is
+        # everything ELSE (skills, requirements, seniority), not
+        # re-guessing facts already known for certain. Without this, a
+        # mock/weak extraction call can silently clobber real data with a
+        # worse guess (caught live: every discovered job's real company/
+        # title got overwritten with AI_PROVIDER=mock's fixed canned
+        # response, "Acme Corp" / "Senior Data Engineer", regardless of
+        # which real company or posting it actually was).
+        from_authoritative_source = extracted_data.get("source") == "company_watch"
+
         # Only overwrite existing columns with non-empty extracted values.
-        if extracted.get("company"):
+        if extracted.get("company") and not from_authoritative_source:
             job.company = extracted["company"]
-        if extracted.get("title"):
+        if extracted.get("title") and not from_authoritative_source:
             job.title = extracted["title"]
-        if extracted.get("location"):
+        if extracted.get("location") and not from_authoritative_source:
             job.location = extracted["location"]
         if extracted.get("remote_policy"):
             job.remote_policy = extracted["remote_policy"]
@@ -138,7 +150,7 @@ async def process_extraction_task(task: WorkflowTask, db: Session) -> None:
             "category": classification.get("primary_category", ""),
             "secondary_categories": classification.get("secondary_categories", []),
             "seniority_level": infer_seniority(
-                extracted.get("title") or "", extracted.get("experience_years_min")
+                job.title or extracted.get("title") or "", extracted.get("experience_years_min")
             ),
             "raw_text_length": len(raw_text),
         })

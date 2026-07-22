@@ -202,3 +202,42 @@ class TestProcessExtractionTask:
         # (with sparse data) rather than being marked failed.
         assert task.status == WorkflowStatus.completed
         assert job.extracted_data.get("fetch_warning")
+
+    @pytest.mark.asyncio
+    async def test_process_extraction_task_preserves_authoritative_company_and_title(self, db):
+        """A job discovered via a company watch already has real company/
+        title/location straight from the ATS's own API - the extraction
+        agent (especially AI_PROVIDER=mock, which returns a fixed canned
+        response regardless of input - confirmed live) must not clobber
+        them with a worse guess."""
+        user = User(id=uuid4(), email=f"{uuid4()}@example.com", hashed_password="hashed")
+        db.add(user)
+        db.commit()
+
+        job = CanonicalJob(
+            id=uuid4(),
+            user_id=user.id,
+            company="Airtable",
+            title="Software Engineer, Data",
+            location="New York, NY",
+            status=JobStatus.discovered,
+            extracted_data={
+                "url": "https://job-boards.greenhouse.io/airtable/jobs/8124953002",
+                "source": "company_watch",
+                "raw_content": "We are hiring a Senior Data Engineer at Acme Corp in San Francisco.",
+            },
+        )
+        db.add(job)
+        db.commit()
+
+        task = WorkflowTask(workflow_type="job_extraction", entity_id=job.id, status=WorkflowStatus.running)
+        db.add(task)
+        db.commit()
+
+        await process_extraction_task(task, db)
+        db.commit()
+        db.refresh(job)
+
+        assert job.company == "Airtable"
+        assert job.title == "Software Engineer, Data"
+        assert job.location == "New York, NY"
