@@ -867,6 +867,28 @@ class GenericAdapter(ATSAdapter):
         if confirm_field:
             await self.fill_field(page, confirm_field, ctx.credential["password"])
 
+        # Some real sites (confirmed live: Epic's real Avature-hosted
+        # careers portal, a 17-field "Employment Inquiry" page combining
+        # account credentials with other application-specific questions on
+        # the SAME page) put real, required, non-credential fields on a
+        # LOGIN/CREATE_ACCOUNT-classified page - fill those the same way
+        # _handle_application_page does, or the site's own validation
+        # rejects the submit and the page just re-renders itself forever.
+        credential_field_names = {f.name for f in (email_field, primary_password_field, confirm_field) if f}
+        other_fields = [f for f in form.fields if f.name not in credential_field_names and f.input_type not in ("password", "file")]
+        if other_fields:
+            app_data_dict = ctx.application_data.model_dump()
+            form_fingerprint = compute_form_fingerprint([f.name for f in form.fields])
+            for field in other_fields:
+                value = await resolve_field_value(field, ctx, app_data_dict, form_fingerprint)
+                if ctx.pending_question:
+                    return StateHandlerResult(success=True)
+                if value is None:
+                    continue
+                result = await self.fill_field(page, field, str(value))
+                if result.success:
+                    ctx.filled_fields[field.name] = value
+
         # Scoped to the actual form being filled, not the whole page - a
         # word list like ("log in", "sign in") is likely to also match an
         # unrelated persistent header/nav link that just happens to appear
@@ -895,6 +917,14 @@ class GenericAdapter(ATSAdapter):
             # - still tried last, after every chance to find the
             # genuinely correct one first.
             submit_btn = await self._find_button_by_words(page, opposite_intent_words, scope=form_element)
+        if not submit_btn:
+            # Some real sites (confirmed live: Epic's real Avature-hosted
+            # careers portal) combine account credentials with other
+            # application-specific fields on the SAME page, advanced by a
+            # completely generic "Next" control rather than anything
+            # login/register-worded at all - the same control every other
+            # multi-page handler in this file already falls back to.
+            submit_btn = await self._find_button_by_words(page, _NEXT_BUTTON_WORDS, scope=form_element)
         if not submit_btn:
             return StateHandlerResult(success=False, error="No submit control found on credential form")
         await submit_btn.click()
