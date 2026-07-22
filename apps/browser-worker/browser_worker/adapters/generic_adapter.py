@@ -53,6 +53,26 @@ el => {
     return null;
 }
 """
+# True if every ANCESTOR (not the element itself) is visible - deliberately
+# ignores the element's own display/visibility, since a file input is
+# routinely hidden by its own styling behind a separate visible "Upload"
+# trigger. What this must still catch: a whole ancestor container (e.g. an
+# inactive page/stage/step section) being hidden, which means the element
+# isn't part of what's actually on screen at all, regardless of its own
+# styling. See is_genuinely_fillable in field_visibility.py for the sibling
+# concern (honeypot geometry) - this one is specifically about DOM position
+# relative to a fixture/site that renders multiple stages simultaneously.
+_ANCESTORS_VISIBLE_JS = """
+el => {
+    let node = el.parentElement;
+    while (node) {
+        const style = window.getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        node = node.parentElement;
+    }
+    return true;
+}
+"""
 # Strips a trailing required-field marker (e.g. Lever's "✱", a plain "*")
 # that's concatenated directly into the label div's text content.
 _TRAILING_REQUIRED_MARKER_RE = re.compile(r"[✱*]+\s*$")
@@ -112,6 +132,21 @@ class GenericAdapter(ATSAdapter):
             pass
         return None
 
+    async def _find_genuinely_present_file_inputs(self, scope) -> List[ElementHandle]:
+        """Every file input that's actually part of what's on screen right
+        now - :visible ones, plus ones hidden only by their own styling
+        (see _ANCESTORS_VISIBLE_JS's docstring for why that distinction
+        matters). Shared by inspect_form and _gather_signals so both agree
+        on what "a file input is present" means."""
+        found = []
+        for file_input in await scope.query_selector_all("input[type='file']"):
+            if await file_input.is_visible():
+                found.append(file_input)
+                continue
+            if await file_input.evaluate(_ANCESTORS_VISIBLE_JS):
+                found.append(file_input)
+        return found
+
     async def inspect_form(self, page: Page) -> ApplicationForm:
         """Extract generic form schema from whichever form is actually visible"""
         fields = []
@@ -131,7 +166,14 @@ class GenericAdapter(ATSAdapter):
         if not form:
             raise ValueError("No visible form found on page")
 
-        inputs = await form.query_selector_all("input:visible, select:visible, textarea:visible")
+        # File inputs are queried separately (via
+        # _find_genuinely_present_file_inputs, excluded here to avoid
+        # double-adding one that's already :visible) - not just near-zero
+        # geometry like Ashby's 1x1 pattern, but genuinely display:none
+        # with a separate visible label/button triggering it (confirmed
+        # live against Epic's real Avature-hosted careers portal).
+        inputs = await form.query_selector_all("input:visible:not([type='file']), select:visible, textarea:visible")
+        inputs.extend(await self._find_genuinely_present_file_inputs(form))
 
         for input_elem in inputs:
             name = await input_elem.get_attribute("name")
@@ -414,7 +456,7 @@ class GenericAdapter(ATSAdapter):
 
         has_password = (await page.query_selector("input[type='password']:visible")) is not None
         has_confirm_password = (await page.query_selector("input[name*='confirm' i][type='password']:visible")) is not None
-        has_file_input = (await page.query_selector("input[type='file']:visible")) is not None
+        has_file_input = bool(await self._find_genuinely_present_file_inputs(page))
         # A widget offering to "Replace" a file means one was already
         # attached - the underlying <input type=file> can stay in the DOM
         # either way (confirmed live against a real Ashby posting), so
