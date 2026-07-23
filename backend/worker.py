@@ -42,6 +42,16 @@ _POLL_INTERVAL_SECONDS = 5
 _DISCOVERY_INTERVAL_SECONDS = 900
 
 _HTML_TAG_RE = re.compile(r"<[^<]+?>")
+# Strips <script>/<style> elements *and their contents*, not just the tags -
+# the generic tag-stripper below only removes markup, so a page with a large
+# inline <style> block (confirmed live on a real Lever posting: several KB of
+# @font-face/CSS) left raw CSS source sitting in the "plain text" output,
+# pushing the real job content past _MAX_DESCRIPTION_CHARS/the extraction
+# agent's own truncation entirely. Only the page <title> (always near the
+# very top of <head>, before any <style> block) survived - explaining company
+# and title extracting correctly while everything else (skills, salary,
+# requirements) came back empty from an LLM that never actually saw them.
+_SCRIPT_STYLE_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 
 
 def _strip_html(raw_html: str) -> str:
@@ -52,7 +62,8 @@ def _strip_html(raw_html: str) -> str:
     they render as the real character instead of literal entity text (matches
     job_discovery.py's _clean_html, which does the same for the ATS-API path).
     """
-    text = _HTML_TAG_RE.sub(" ", html_lib.unescape(raw_html))
+    without_script_style = _SCRIPT_STYLE_RE.sub(" ", raw_html)
+    text = _HTML_TAG_RE.sub(" ", html_lib.unescape(without_script_style))
     # Collapse excess whitespace left behind by stripped tags/newlines.
     return re.sub(r"\s+", " ", text).strip()
 

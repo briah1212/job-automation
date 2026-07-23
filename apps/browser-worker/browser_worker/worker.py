@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 MAX_TRANSITIONS = 80
 MAX_WALL_CLOCK_SECONDS = 1800
 MAX_UNKNOWN_STREAK = 3
+# See run_state_machine's progress_snapshot check - 3 strikes before
+# concluding a run is genuinely stalled rather than just between two
+# almost-identical-looking real steps (e.g. a slow-loading widget that
+# briefly re-renders the same fields before something actually advances).
+MAX_NO_PROGRESS_STREAK = 3
 
 # run_state_machine's own MAX_WALL_CLOCK_SECONDS check only runs between loop
 # iterations, so it can't bound a single operation that hangs mid-iteration
@@ -270,6 +275,22 @@ class BrowserWorker:
         """The primary browser control loop: detect state, checkpoint, act, wait, repeat."""
         ctx.started_at = time.monotonic()
         settled_first_detection = False
+        # Detects a stalled run - same state, same filled fields, iteration
+        # after iteration - and escalates after a handful of repeats instead
+        # of silently burning the entire MAX_TRANSITIONS budget (confirmed
+        # live on two real, independent ATS platforms: a form with an
+        # optional field the candidate has no data for can never reach
+        # SUBMIT_READY, so every loop re-runs the full fill pass forever,
+        # including a real, billed AI call per AI-answered question each
+        # time). This doesn't fix the misclassification - has_unfilled_
+        # visible_field's inability to tell "optional and empty on purpose"
+        # from "required and empty" is a real, separate, harder problem -
+        # but it turns "80 wasted transitions and dozens of duplicate AI
+        # calls before giving up" into "notice the stall after 3 identical
+        # iterations and stop", which is safe regardless of *why* nothing
+        # is changing.
+        no_progress_streak = 0
+        last_progress_snapshot: Optional[tuple] = None
 
         while True:
             ctx.transitions += 1
@@ -374,6 +395,19 @@ class BrowserWorker:
                     "pending_question": ctx.pending_question,
                     "session_id": ctx.session_id,
                 }
+
+            progress_snapshot = (state, tuple(sorted(ctx.filled_fields.items())))
+            if progress_snapshot == last_progress_snapshot:
+                no_progress_streak += 1
+                if no_progress_streak >= MAX_NO_PROGRESS_STREAK:
+                    return await self._escalate(
+                        page, ctx, PauseReason.REPEATED_FAILURE,
+                        f"no progress after {no_progress_streak} consecutive {state.value} iterations "
+                        "(same state, same filled fields each time)",
+                    )
+            else:
+                no_progress_streak = 0
+                last_progress_snapshot = progress_snapshot
 
             await self._wait_for_transition(page)
 

@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 _HTTP_TIMEOUT_SECONDS = 15.0
 _USER_AGENT = "job-automation-worker/1.0 (+https://github.com/brianhsu/job-automation)"
 _HTML_TAG_RE = re.compile(r"<[^<]+?>")
+# See worker.py's _strip_html for why this matters - matching fix applied
+# here too, even though an ATS's `content` API field is far less likely to
+# carry a <style> block than a full page fetch would.
+_SCRIPT_STYLE_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 
 
 def _clean_html(raw: Optional[str]) -> Optional[str]:
@@ -39,7 +43,8 @@ def _clean_html(raw: Optional[str]) -> Optional[str]:
     if not raw:
         return None
     unescaped = html.unescape(raw)
-    text = _HTML_TAG_RE.sub(" ", unescaped)
+    without_script_style = _SCRIPT_STYLE_RE.sub(" ", unescaped)
+    text = _HTML_TAG_RE.sub(" ", without_script_style)
     return re.sub(r"\s+", " ", text).strip()
 
 
