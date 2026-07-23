@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+.venv
+venv
+.pytest_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Never bake local secrets into the image layer - all config comes from
+# docker-compose's `environment:` (see ../docker-compose.yml, ../.env.example).
+.env

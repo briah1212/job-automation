@@ -16,6 +16,13 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED 1
 
+# Next.js inlines NEXT_PUBLIC_* variables into the client bundle at build
+# time, not at container runtime - so this must be a build ARG, not just a
+# `docker-compose.yml` `environment:` entry (which only reaches the running
+# container, too late for the browser bundle to see it).
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 RUN npm run build
 
 # Production image, copy all the files and run next

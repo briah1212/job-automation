@@ -1,20 +1,18 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: job_automation_db
     environment:
-      POSTGRES_DB: job_automation
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-job_automation}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${INFRA_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,7 +24,7 @@ services:
     image: redis:7-alpine
     container_name: job_automation_redis
     ports:
-      - "6379:6379"
+      - "${INFRA_BIND:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -41,13 +39,13 @@ services:
     container_name: job_automation_minio
     command: server /data --console-address ":9011"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"
-      - "9011:9011"
+      - "${INFRA_BIND:-127.0.0.1}:${MINIO_PORT:-9000}:9000"
+      - "${INFRA_BIND:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9011}:9011"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
@@ -63,25 +61,26 @@ services:
       dockerfile: Dockerfile
     container_name: job_automation_api
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/job_automation
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-job_automation}
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: resumes
-      MINIO_BROWSER_BUCKET: browser-artifacts
-      JWT_SECRET: dev-secret-change-in-production
-      JWT_ALGORITHM: HS256
-      JWT_EXPIRATION_MINUTES: 1440
-      CREDENTIAL_ENCRYPTION_KEY: LXtkpaYI5TGKJJLaaTaxwB5C9V9242HBH1RwanGewt4=
-      INTERNAL_API_KEY: dev-internal-key-change-in-production
-      AI_PROVIDER: mock
-      ENVIRONMENT: development
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BROWSER_BUCKET: ${MINIO_BROWSER_BUCKET:-browser-artifacts}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env - see .env.example}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY must be set in .env - see .env.example}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set in .env - see .env.example}
+      CORS_ORIGINS: '["${NEXTAUTH_URL:-http://localhost:3002}","http://localhost:3000"]'
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - ./backend:/app
       - ./storage:/app/storage
     ports:
-      - "8001:8000"
+      - "${API_PORT:-8001}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,8 +103,15 @@ services:
       dockerfile: Dockerfile
     container_name: job_automation_worker
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/job_automation
-      AI_PROVIDER: mock
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-job_automation}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env - see .env.example}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY must be set in .env - see .env.example}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set in .env - see .env.example}
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - ./backend:/app
     command: python worker.py
@@ -122,14 +128,16 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
     container_name: job_automation_web
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8001
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
       API_URL: http://api:8000
-      NEXTAUTH_SECRET: dev-secret-change-in-production
-      NEXTAUTH_URL: http://localhost:3002
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set in .env - see .env.example}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3002}
     ports:
-      - "3002:3000"
+      - "${WEB_PORT:-3002}:3000"
     depends_on:
       - api
     networks:
@@ -142,18 +150,17 @@ services:
       dockerfile: Dockerfile
     container_name: job_automation_browser_worker
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/job_automation
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-job_automation}
       API_URL: http://api:8000
-      AI_PROVIDER: mock
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
       PYTHONPATH: /backend
-      HEADLESS: "true"
-      SECRET_KEY: dev-secret-change-in-production
-      JWT_SECRET: dev-secret-change-in-production
+      HEADLESS: ${HEADLESS:-true}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env - see .env.example}
       MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BROWSER_BUCKET: browser-artifacts
-      INTERNAL_API_KEY: dev-internal-key-change-in-production
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BROWSER_BUCKET: ${MINIO_BROWSER_BUCKET:-browser-artifacts}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set in .env - see .env.example}
     volumes:
       - ./apps/browser-worker:/app
       - ./backend:/backend:ro
@@ -168,7 +175,8 @@ services:
     networks:
       - job_automation_network
 
-  # Mock ATS Site (for testing)
+  # Mock ATS Site (for testing - not required in a real deployment, but has
+  # no external dependencies of its own so it's harmless to leave running)
   mock-ats:
     image: python:3.11-slim
     container_name: job_automation_mock_ats
@@ -176,7 +184,7 @@ services:
     volumes:
       - ./fixtures/ats-sites/mock-ats:/app
     ports:
-      - "8080:8080"
+      - "${MOCK_ATS_PORT:-8080}:8080"
     command: python server.py
     networks:
       - job_automation_network

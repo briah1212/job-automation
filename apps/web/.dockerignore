@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+*.log
+
+# Local env files must never leak into the image - build-time config comes
+# only from docker-compose's `build.args` (see ../../Dockerfile and
+# ../../docker-compose.yml). A stray .env.local on the host previously baked
+# whatever localhost URL was on the developer's machine into the image
+# silently; that's exactly what broke portability to a fresh checkout.
+.env
+.env*.local
