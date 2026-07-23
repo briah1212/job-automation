@@ -34,16 +34,8 @@ def extract_facts_for_user(db: Session, user_id: UUID) -> List[ProfileFact]:
     created: List[ProfileFact] = []
 
     profile = db.query(Profile).filter(Profile.user_id == user_id).first()
-    if profile is not None and profile.career_interests:
-        created.append(
-            _make_fact(
-                user_id=user_id,
-                fact_type="summary_point",
-                content=profile.career_interests,
-                source_type="user_input",
-                source_identifier=None,
-            )
-        )
+    if profile is not None:
+        created.extend(_extract_from_profile(user_id, profile))
 
     resume_families = db.query(ResumeFamily).filter(ResumeFamily.user_id == user_id).all()
     resume_family_ids = [family.id for family in resume_families]
@@ -75,6 +67,72 @@ def extract_facts_for_user(db: Session, user_id: UUID) -> List[ProfileFact]:
             db.refresh(fact)
 
     return created
+
+
+def _extract_from_profile(user_id: UUID, profile: Profile) -> List[ProfileFact]:
+    """Turn the structured Profile fields into facts the Q&A agent can cite.
+
+    Without this, the only fact ever generated was career_interests - every
+    other Profile field (name, email, phone, linkedin, work authorization,
+    etc.) was correctly filled in by the user but invisible to
+    ApplicationQuestionAgent's strictly-grounded prompt, which only sees
+    ProfileFact rows. That was masked for a long time by the mock AI
+    provider always returning a canned response regardless of input; a real
+    provider honestly reported "the provided facts do not contain the
+    applicant's full legal name" for a profile that plainly has one.
+    """
+    facts: List[ProfileFact] = []
+
+    def add(fact_type: str, content: str) -> None:
+        facts.append(
+            _make_fact(
+                user_id=user_id,
+                fact_type=fact_type,
+                content=content,
+                source_type="user_input",
+                source_identifier=None,
+            )
+        )
+
+    if profile.legal_name:
+        add("contact_info", f"Full legal name: {profile.legal_name}")
+    if profile.preferred_name:
+        add("contact_info", f"Preferred name: {profile.preferred_name}")
+    if profile.email:
+        add("contact_info", f"Email address: {profile.email}")
+    if profile.phone:
+        add("contact_info", f"Phone number: {profile.phone}")
+    if profile.linkedin:
+        add("contact_info", f"LinkedIn profile: {profile.linkedin}")
+    if profile.github:
+        add("contact_info", f"GitHub profile: {profile.github}")
+    if profile.city or profile.state or profile.country:
+        location = ", ".join(part for part in [profile.city, profile.state, profile.country] if part)
+        add("contact_info", f"Current location: {location}")
+
+    if profile.career_interests:
+        add("summary_point", profile.career_interests)
+    if profile.work_authorization:
+        add("summary_point", f"Work authorization status: {profile.work_authorization}")
+    if profile.citizenship:
+        add("summary_point", f"Citizenship: {profile.citizenship}")
+    if profile.target_seniority:
+        add("summary_point", f"Target seniority level: {profile.target_seniority}")
+    if profile.graduation_year:
+        add("summary_point", f"Graduation year: {profile.graduation_year}")
+    if profile.relocation_willingness:
+        add("summary_point", f"Willingness to relocate: {profile.relocation_willingness}")
+    if profile.salary_expectation_min or profile.salary_expectation_max:
+        lo = profile.salary_expectation_min
+        hi = profile.salary_expectation_max
+        if lo and hi:
+            add("summary_point", f"Salary expectations: ${lo:,} - ${hi:,}")
+        else:
+            add("summary_point", f"Salary expectations: ${(lo or hi):,}")
+    if profile.clearance_eligible is not None:
+        add("summary_point", f"Security clearance eligible: {'Yes' if profile.clearance_eligible else 'No'}")
+
+    return facts
 
 
 def _extract_from_parsed_data(

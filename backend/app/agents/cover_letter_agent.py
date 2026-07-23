@@ -19,7 +19,10 @@ name directly in the letter - do not write a generic letter that could apply to 
 
 You may ONLY draw on the material below - the candidate's resume content and their verified \
 profile facts. Never invent employers, job titles, skills, metrics, or achievements that are not \
-present in this material.
+present in this material. This rule has no exceptions, including when the material below is \
+sparse or empty - a short, honest, general letter is always correct; a specific-sounding but \
+fabricated one is never acceptable, since this letter will be sent to a real employer under the \
+candidate's real name.
 
 CANDIDATE RESUME (parsed_data):
 {parsed_data}
@@ -43,6 +46,34 @@ would be a great fit" unless it is immediately backed up by a concrete, substant
 in narrative form appropriate to a cover letter.
 - {tone_instruction}
 - {word_limit_instruction}
+
+Before writing, check whether the resume and verified facts above actually contain specific, \
+concrete material (named projects, employers, technologies used, quantified outcomes) that is \
+genuinely relevant to this job's stated needs.
+- If they do, write the letter as instructed above, citing only that real material.
+- If they do NOT - e.g. the resume is empty and the verified facts are limited to things like \
+career interests, seniority level, location, or work authorization - do not invent specific \
+projects, employers, technologies, or metrics to compensate. Instead write a shorter, more \
+general letter that honestly expresses interest in the role and company using only what is \
+actually provided, and add an entry to `warnings` stating that there was not enough verified \
+material to cite specific past achievements relevant to this role.
+- This applies just as much to plausible-sounding "safe" inventions as to obvious ones. Do NOT \
+invent a class project, capstone project, coursework, personal project, hackathon, internship \
+task, or any other named specific experience to fill the gap, even phrased tentatively (\"a class \
+project where...\", \"in my coursework I...\"). If it is not literally present in the material \
+above, it does not go in the letter - describing yourself in terms of the verified facts alone \
+(interests, seniority, location, work authorization) is correct; inventing a plausible-sounding \
+project to sound more concrete is not, regardless of how minor or believable it seems.
+- Do not claim proficiency, experience, or familiarity with any specific technology, language, \
+tool, or skill (e.g. "Go", "Kafka", "Prometheus") unless that exact skill appears in the \
+candidate's resume or verified facts above. The JOB'S STATED NEEDS section lists what the \
+EMPLOYER wants - it is not a list of the candidate's own skills, and naming a technology from \
+that section as something the candidate has used or knows is fabrication, identical in kind to \
+inventing a project. It is fine, and often correct, for a candidate with sparse verified \
+material to simply not claim any specific tech stack at all.
+- A fabricated achievement, project, or credential anywhere in the letter is a failure of this \
+task, even if it would have made the letter more persuasive. If you catch yourself about to \
+write a specific example that is not drawn from the material above, stop and generalize instead.
 
 Produce the cover letter as structured JSON matching the required schema.
 """
@@ -111,6 +142,10 @@ class CoverLetterAgent(BaseAgent):
         result: CoverLetterDraft = await AIGateway().generate_structured(
             prompt=prompt,
             schema=CoverLetterDraft,
+            # Lower than the gateway's 0.7 default - this content goes out under
+            # the candidate's real name to a real employer, so favor grounded,
+            # literal use of the provided material over creative embellishment.
+            temperature=0.3,
             agent_type="cover_letter",
             user_id=user_id,
         )
