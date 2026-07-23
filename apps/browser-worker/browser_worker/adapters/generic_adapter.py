@@ -160,6 +160,21 @@ class GenericAdapter(ATSAdapter):
                 found.append(file_input)
         return found
 
+    @staticmethod
+    async def _is_required(elem) -> bool:
+        """A field can be required via the native HTML `required` boolean
+        attribute, or via `aria-required="true"` alone with no `required`
+        attribute at all - confirmed live on a real Greenhouse posting,
+        whose React-based custom question widgets only ever set
+        aria-required (the visible "*" in the label is a separate,
+        decorative <span>, not tied to either attribute). Checking only
+        `required` silently treated a real required field as optional,
+        so it was never a candidate for the "ask AI to answer this
+        required field" fallback and was skipped forever."""
+        if await elem.get_attribute("required") is not None:
+            return True
+        return (await elem.get_attribute("aria-required") or "").lower() == "true"
+
     async def inspect_form(self, page: Page) -> ApplicationForm:
         """Extract generic form schema from whichever form is actually visible"""
         fields = []
@@ -217,11 +232,11 @@ class GenericAdapter(ATSAdapter):
                 group = radio_groups.setdefault(name, {"options": [], "required": False})
                 if option_label and option_label not in group["options"]:
                     group["options"].append(option_label)
-                if await input_elem.get_attribute("required") is not None:
+                if await self._is_required(input_elem):
                     group["required"] = True
                 continue
 
-            required = await input_elem.get_attribute("required") is not None
+            required = await self._is_required(input_elem)
             placeholder = await input_elem.get_attribute("placeholder")
             label_text = await self._resolve_label(page, input_elem, input_id) or identifier.replace("_", " ").replace("-", " ").title()
 
@@ -508,6 +523,18 @@ class GenericAdapter(ATSAdapter):
         # genuinely attached - the run never reaches the rest of the form.
         resume_already_attached = any("replace" in b for b in buttons)
         visible_fields = await page.query_selector_all("input:visible, select:visible, textarea:visible")
+        # Distinct from visible_field_count: excludes file inputs, so it
+        # answers "are there substantive fields to fill" independent of
+        # whether a resume/cover-letter upload widget also happens to be on
+        # the page. Needed because real single-page ATS forms (confirmed
+        # live against a real Greenhouse posting) render the file input
+        # alongside every other field from the very first load - there is
+        # no separate "resume upload" page to visit first, so gating
+        # anything on has_file_input being False can never pass, and the
+        # page can never be recognized as a fillable form at all.
+        non_file_fields = await page.query_selector_all(
+            "input:visible:not([type=file]), select:visible, textarea:visible"
+        )
         # Field *presence* alone isn't evidence of readiness to submit - a
         # single-page application form shows its real "Submit Application"
         # button from the moment it renders, before a single field has been
@@ -540,6 +567,24 @@ class GenericAdapter(ATSAdapter):
         # against a real Ashby posting: exhausted all 40 transitions stuck
         # on APPLICATION despite every resolvable field already being
         # filled correctly.
+        #
+        # KNOWN GAP (confirmed live on a real Greenhouse posting, not fixed
+        # here): this counts ANY empty visible field, including an
+        # optional one nothing in the candidate's data can fill (e.g. an
+        # optional "Website" field) - so a form with even one such field
+        # can never reach SUBMIT_READY at all, and re-runs its full fill
+        # pass (including a real, billed AI call per AI-answered question)
+        # every loop until MAX_TRANSITIONS gives up. Tried scoping this to
+        # required-marked fields only, but that regressed a deliberate
+        # safety test (test_generic_adapter_partial_fill_no_deadlock.py) -
+        # an empty `email` input with no `required` attribute at all must
+        # still block SUBMIT_READY, so "is this field required" can't be
+        # answered by the DOM's `required`/`aria-required` markup alone.
+        # Reverted rather than ship a version that passed CI but weakened a
+        # real safety property; needs the Python-side "does the candidate
+        # actually have data for this field" check (already computed by
+        # resolve_field_value) threaded into this signal, not a bigger
+        # DOM-only regex.
         has_unfilled_visible_field = await page.evaluate(
             """() => Array.from(document.querySelectorAll(
                 "input:not([type=file]):not([type=checkbox]):not([type=radio]):not([type=hidden]), select, textarea"
@@ -565,6 +610,7 @@ class GenericAdapter(ATSAdapter):
             "has_any_filled_field": has_any_filled_field,
             "has_unfilled_visible_field": has_unfilled_visible_field,
             "visible_field_count": len(visible_fields),
+            "non_file_field_count": len(non_file_fields),
             "unchecked_required_checkbox": unchecked_required_checkbox,
             "body_text": body_text,
         }
@@ -581,7 +627,15 @@ class GenericAdapter(ATSAdapter):
             score += 0.6
         if s["visible_field_count"] == 0 and not s["has_password"]:
             score += 0.3
-        return min(score, 1.0)
+        # An "Apply" CTA sitting above an already-rendered form (confirmed
+        # live on a real Greenhouse posting, whose template puts the whole
+        # application form on the same page as the job description - Apply
+        # just scrolls to it, it isn't a real state transition) doesn't make
+        # this a landing page anymore, regardless of the CTA still being
+        # present in the DOM.
+        if s["non_file_field_count"] >= 2:
+            score -= 0.4
+        return max(0.0, min(score, 1.0))
 
     def _score_apply(self, s: dict) -> float:
         score = 0.0
@@ -640,7 +694,12 @@ class GenericAdapter(ATSAdapter):
             # never advancing to the rest of the form's fields.
             return 0.0
         score = 0.0
-        if s["has_file_input"]:
+        # Gated on few/no other fields, not just has_file_input alone - a
+        # real single-page form (e.g. Greenhouse) has a file input on the
+        # same page as every text field from the first load, and that's a
+        # normal fields-to-fill APPLICATION page, not a dedicated
+        # resume-upload step.
+        if s["has_file_input"] and s["non_file_field_count"] < 2:
             score += 0.5
         if any(w in s["url"] for w in ("resume", "cv-upload", "upload")):
             score += 0.2
@@ -671,19 +730,40 @@ class GenericAdapter(ATSAdapter):
 
     def _score_application(self, s: dict) -> float:
         score = 0.0
-        # A file input that's already had a resume attached to it (shows
-        # "Replace" rather than being empty) doesn't disqualify this as a
-        # normal fields-to-fill page - it's just one more field on it,
-        # already done. Confirmed live: without resume_already_attached
-        # here, a real single-page Ashby form could never score as
-        # APPLICATION once its resume field had been filled, since
-        # has_file_input never goes back to False.
-        if s["visible_field_count"] >= 2 and not s["has_password"] and (not s["has_file_input"] or s["resume_already_attached"]):
+        # Gated on non_file_field_count, not visible_field_count + a
+        # has_file_input/resume_already_attached carve-out - the old gate
+        # required a resume to already be attached before this could ever
+        # score as APPLICATION, which is a chicken-and-egg deadlock for any
+        # real single-page form (confirmed live on Greenhouse) where the
+        # file input renders on the same page as every other field from the
+        # start: nothing would ever trigger the fill logic that was
+        # supposed to attach that resume in the first place. Whether a file
+        # input is present or already filled no longer matters here - what
+        # matters is whether there are real, substantive fields to fill.
+        if s["non_file_field_count"] >= 2 and not s["has_password"]:
             score += 0.4
         if any(w in s["url"] for w in ("application", "apply-form")):
             score += 0.1
         if any(w in b for b in s["buttons"] for w in _NEXT_BUTTON_WORDS):
             score += 0.3
+        # A genuine "Submit Application"/"Submit your application" button
+        # sitting alongside real, still-*unfilled* fields is a strong,
+        # specific signal this is the actual form to fill (as opposed to a
+        # bare "Apply" scroll-to-form CTA, deliberately not matched here -
+        # see _score_landing). Needed because 0.4 alone sits below
+        # detect_state's 0.5 confidence floor and would be classified
+        # UNKNOWN despite correctly being the single highest score -
+        # confirmed live on the same real Greenhouse form used to find the
+        # non_file_field_count bug above, whose single-page form has no
+        # "Next"/"Continue" button at all, only "Submit Application". Gated
+        # on has_unfilled_visible_field so this can't fire once the form is
+        # actually done, which would just re-fight _score_submit_ready for
+        # the same page (two fixture regressions caught this the first time
+        # this check had no such gate: a fully-filled form and a
+        # already-filled-then-checked-consent form both misclassified back
+        # to APPLICATION instead of staying SUBMIT_READY).
+        if s["has_unfilled_visible_field"] and any("submit" in b for b in s["buttons"]):
+            score += 0.2
         return min(score, 1.0)
 
     def _score_review(self, s: dict) -> float:
@@ -1015,6 +1095,27 @@ class GenericAdapter(ATSAdapter):
 
         for field in form.fields:
             if field.input_type == "file":
+                # File fields used to be skipped entirely here on the
+                # assumption a resume is always uploaded by a dedicated
+                # RESUME_UPLOAD state first - true for a mock-fixture-style
+                # multi-step flow, but not for a real single-page form
+                # (confirmed live on Greenhouse) where the resume's file
+                # input renders alongside every other field on the same
+                # page detect_state now correctly classifies as APPLICATION.
+                # Without this, the resume (a required field) never gets
+                # filled, has_unfilled_visible_field never clears, and the
+                # run just re-fills the same already-filled text fields
+                # forever. Only the field that canonically maps to "resume"
+                # is targeted - a separate cover-letter file upload field on
+                # the same form is deliberately left alone, since there is
+                # no cover-letter *file* to put there (only generated text).
+                if (
+                    ctx.field_mapper.map_to_canonical(field) == "resume"
+                    and ctx.application_data.resume_path
+                ):
+                    upload_result = await self.upload_document(page, field, ctx.application_data.resume_path)
+                    if upload_result.success:
+                        ctx.filled_fields[field.name] = ctx.application_data.resume_path
                 continue
             value = await resolve_field_value(field, ctx, app_data_dict, form_fingerprint)
             if ctx.pending_question:
