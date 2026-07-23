@@ -193,7 +193,7 @@ export default function CompanyWatchesPage() {
                   <TableCell>
                     <Checkbox checked={watch.enabled} onCheckedChange={() => handleToggle(watch)} />
                   </TableCell>
-                  <TableCell className="font-medium">{watch.company_name}</TableCell>
+                  <TableCell className="font-medium max-w-[200px] truncate">{watch.company_name}</TableCell>
                   <TableCell className="capitalize">{watch.ats_platform}</TableCell>
                   <TableCell className="text-muted-foreground">{watch.board_identifier}</TableCell>
                   <TableCell className="text-muted-foreground text-sm">

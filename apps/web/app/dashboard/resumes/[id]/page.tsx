@@ -481,14 +481,16 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
               {locks.map((lock) => (
                 <div
                   key={lock.id}
-                  className="flex items-center justify-between border rounded-md p-3 text-sm"
+                  className="flex items-center justify-between gap-2 border rounded-md p-3 text-sm"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <span className="font-medium">{lock.lock_type}</span>
                     <span className="text-muted-foreground"> → {lock.target_ref}</span>
                   </div>
                   {lock.value && (
-                    <Badge variant="outline">{JSON.stringify(lock.value)}</Badge>
+                    <Badge variant="outline" className="max-w-[200px] truncate whitespace-nowrap shrink-0">
+                      {JSON.stringify(lock.value)}
+                    </Badge>
                   )}
                 </div>
               ))}

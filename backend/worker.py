@@ -13,6 +13,7 @@ classification agents, and writing the results back onto the CanonicalJob.
 from __future__ import annotations
 
 import asyncio
+import html as html_lib
 import logging
 import re
 import time
@@ -43,9 +44,15 @@ _DISCOVERY_INTERVAL_SECONDS = 900
 _HTML_TAG_RE = re.compile(r"<[^<]+?>")
 
 
-def _strip_html(html: str) -> str:
-    """Strip HTML tags down to plain text using a lightweight regex (no BeautifulSoup dependency)."""
-    text = _HTML_TAG_RE.sub(" ", html)
+def _strip_html(raw_html: str) -> str:
+    """Strip HTML tags down to plain text using a lightweight regex (no BeautifulSoup dependency).
+
+    Real job postings routinely contain entities (&amp;, &hellip;, &rarr;, ...)
+    for characters like &, ..., ->  - unescape those before stripping tags so
+    they render as the real character instead of literal entity text (matches
+    job_discovery.py's _clean_html, which does the same for the ATS-API path).
+    """
+    text = _HTML_TAG_RE.sub(" ", html_lib.unescape(raw_html))
     # Collapse excess whitespace left behind by stripped tags/newlines.
     return re.sub(r"\s+", " ", text).strip()
 

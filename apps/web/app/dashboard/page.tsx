@@ -159,7 +159,7 @@ export default function DashboardPage() {
           <CardDescription>Current status of your applications</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             {PIPELINE_STAGES.map((stage) => (
               <div key={stage} className="text-center">
                 <div className="text-2xl font-bold">{pipelineCounts[stage] || 0}</div>

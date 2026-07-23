@@ -171,20 +171,20 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           <h1 className="text-3xl font-bold">
             {job.title || (job.status === 'extracting' ? 'Extracting job details...' : 'Untitled')}
           </h1>
-          <div className="flex items-center gap-4 mt-2 text-muted-foreground">
+          <div className="flex items-center gap-4 mt-2 text-muted-foreground flex-wrap">
             <div className="flex items-center gap-1">
-              <Briefcase className="h-4 w-4" />
+              <Briefcase className="h-4 w-4 shrink-0" />
               {job.company || 'Unknown company'}
             </div>
             {job.location && (
               <div className="flex items-center gap-1">
-                <MapPin className="h-4 w-4" />
+                <MapPin className="h-4 w-4 shrink-0" />
                 {job.location}
               </div>
             )}
             {job.salary_min && job.salary_max && (
               <div className="flex items-center gap-1">
-                <DollarSign className="h-4 w-4" />
+                <DollarSign className="h-4 w-4 shrink-0" />
                 ${(job.salary_min / 1000).toFixed(0)}k - ${(job.salary_max / 1000).toFixed(0)}k
               </div>
             )}

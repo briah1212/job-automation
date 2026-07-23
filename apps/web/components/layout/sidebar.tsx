@@ -29,7 +29,7 @@ export function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <div className="flex h-full w-64 flex-col border-r bg-gray-50">
+    <div className="flex h-full w-64 shrink-0 flex-col border-r bg-gray-50">
       <div className="flex h-16 items-center border-b px-6">
         <h1 className="text-xl font-bold">Job Automation</h1>
       </div>

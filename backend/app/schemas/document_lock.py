@@ -15,8 +15,9 @@ class DocumentLockBase(BaseModel):
 
 
 class DocumentLockCreate(DocumentLockBase):
-    """Document lock creation schema."""
-    resume_family_id: UUID
+    """Document lock creation schema. resume_family_id deliberately isn't a
+    field here - it comes from the URL path (POST /resumes/families/{family_id}/locks),
+    and the route never reads it off the body."""
 
 
 class DocumentLock(DocumentLockBase):

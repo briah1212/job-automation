@@ -31,6 +31,20 @@ import type {
   CompanyWatchUpdate,
 } from './types'
 
+// FastAPI's `detail` is a plain string for HTTPException, but a list of
+// {loc, msg, type} objects for Pydantic validation errors (422s) - without
+// this, those surfaced as the literal text "[object Object]".
+function formatErrorDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (item && typeof item === 'object' && 'msg' in item ? String((item as { msg: unknown }).msg) : null))
+      .filter((msg): msg is string => Boolean(msg))
+    if (messages.length > 0) return messages.join('; ')
+  }
+  return 'Request failed'
+}
+
 class APIClient {
   private baseURL: string
 
@@ -61,7 +75,7 @@ class APIClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }))
-      const err = new Error(error.detail || 'Request failed') as Error & { status?: number }
+      const err = new Error(formatErrorDetail(error.detail)) as Error & { status?: number }
       err.status = response.status
 
       // The session cookie can still look valid (NextAuth's own JWT hasn't

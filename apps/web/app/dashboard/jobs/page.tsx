@@ -98,14 +98,11 @@ export default function JobsPage() {
   const fetchJobs = async () => {
     setLoading(true)
     try {
-      const jobFilters: any = {}
-      if (filters.search) jobFilters.search = filters.search
-      if (filters.categories.length > 0) jobFilters.category = filters.categories.join(',')
-      if (filters.scoreRange[0] > 0) jobFilters.min_score = filters.scoreRange[0]
-      if (filters.scoreRange[1] < 100) jobFilters.max_score = filters.scoreRange[1]
-      if (filters.statuses.length > 0) jobFilters.status = filters.statuses.join(',')
-
-      const data = await apiClient.getJobs(jobFilters)
+      // The backend's GET /api/jobs only supports status_filter/skip/limit -
+      // category, score range, and free-text search have no server-side
+      // equivalent, so every filter below is applied client-side over the
+      // full job list instead.
+      const data = await apiClient.getJobs()
       setJobs(data)
     } catch (error) {
       console.error('Failed to fetch jobs:', error)
@@ -114,11 +111,12 @@ export default function JobsPage() {
     }
   }
 
-  // Fetch jobs with filters
+  // Fetch the full job list once - all filtering happens client-side in filteredJobs.
   useEffect(() => {
     fetchJobs()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters])
+  }, [])
+
+  const normalizeCategory = (value: string) => value.toLowerCase().replace(/[\s_-]+/g, '_')
 
   const handleImport = async () => {
     if (!importUrl.trim()) return
@@ -137,20 +135,60 @@ export default function JobsPage() {
     }
   }
 
-  // Filter jobs locally for criteria not supported by API
+  // All filtering happens client-side - see the comment in fetchJobs.
   const filteredJobs = jobs.filter((job) => {
+    // Search filter (title, company, description)
+    if (filters.search) {
+      const q = filters.search.toLowerCase()
+      const haystack = `${job.title} ${job.company} ${job.description ?? ''}`.toLowerCase()
+      if (!haystack.includes(q)) {
+        return false
+      }
+    }
+
+    // Category filter - job categories are free-form AI-classified snake_case
+    // strings (e.g. "data_engineering"), so compare normalized forms rather
+    // than exact matches against the curated Title Case checkbox labels.
+    if (filters.categories.length > 0) {
+      const jobCategory = job.extracted_data?.category
+      const secondaryCategories: string[] = job.extracted_data?.secondary_categories ?? []
+      const jobCategories = [jobCategory, ...secondaryCategories].filter(Boolean).map(normalizeCategory)
+      const selected = filters.categories.map(normalizeCategory)
+      if (!selected.some((c) => jobCategories.includes(c))) {
+        return false
+      }
+    }
+
+    // Match score range filter
+    if (job.score != null) {
+      if (job.score < filters.scoreRange[0] || job.score > filters.scoreRange[1]) {
+        return false
+      }
+    } else if (filters.scoreRange[0] > 0) {
+      // A job with no score yet can't meet a minimum score requirement.
+      return false
+    }
+
     // Location filter
     if (filters.location && job.location && !job.location.toLowerCase().includes(filters.location.toLowerCase())) {
       return false
     }
-    
-    // Remote policy filter
-    if (filters.remotePolicies.length > 0 && job.remote_policy) {
-      if (!filters.remotePolicies.includes(job.remote_policy.toLowerCase())) {
+
+    // Remote policy filter - job.remote_policy is free text (e.g. "Hybrid -
+    // 3 days in office"), not one of the three fixed filter values, so match
+    // by substring rather than exact equality.
+    if (filters.remotePolicies.length > 0) {
+      const policy = job.remote_policy?.toLowerCase() ?? ''
+      if (!filters.remotePolicies.some((p) => policy.includes(p))) {
         return false
       }
     }
-    
+
+    // Status filter
+    if (filters.statuses.length > 0 && !filters.statuses.includes(job.status)) {
+      return false
+    }
+
     // Salary range filter
     if (job.salary_min != null && job.salary_min < filters.salaryRange[0]) {
       return false
@@ -158,7 +196,7 @@ export default function JobsPage() {
     if (job.salary_max != null && job.salary_max > filters.salaryRange[1]) {
       return false
     }
-    
+
     return true
   })
 
@@ -280,8 +318,8 @@ export default function JobsPage() {
 
       {/* Search and Controls */}
       <Card className="p-4">
-        <div className="flex gap-4">
-          <div className="relative flex-1">
+        <div className="flex gap-4 flex-wrap">
+          <div className="relative flex-1 min-w-[240px]">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search jobs by company, title, or keywords..."
@@ -485,8 +523,8 @@ export default function JobsPage() {
 
                   return (
                     <TableRow key={job.id}>
-                      <TableCell className="font-medium">{job.company}</TableCell>
-                      <TableCell>{job.title}</TableCell>
+                      <TableCell className="font-medium max-w-[200px] truncate">{job.company}</TableCell>
+                      <TableCell className="max-w-[240px] truncate">{job.title}</TableCell>
                       <TableCell>
                         <div className="space-y-1">
                           <div className="text-sm">{job.location || 'Not specified'}</div>

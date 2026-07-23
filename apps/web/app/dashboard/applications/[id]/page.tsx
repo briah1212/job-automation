@@ -212,8 +212,8 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <div className="md:col-span-2 space-y-6">
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Job Details</CardTitle>
@@ -221,8 +221,8 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
             <CardContent className="space-y-2">
               {job ? (
                 <>
-                  <div className="flex items-center gap-2">
-                    <Briefcase className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span className="font-medium">{job.company}</span>
                     <span className="text-muted-foreground">•</span>
                     <span>{job.title}</span>
