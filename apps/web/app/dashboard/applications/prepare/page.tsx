@@ -131,7 +131,7 @@ export default function PrepareApplicationPage() {
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4" />
                   <span className="text-sm font-medium">
-                    {resume.parent_id ? 'Tailored Variant' : 'Base Resume'} (v{resume.version})
+                    {resume.family_name || (resume.parent_id ? 'Tailored Variant' : 'Base Resume')} (v{resume.version})
                   </span>
                 </div>
                 <Badge variant="outline" className="text-xs">

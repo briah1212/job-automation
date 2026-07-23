@@ -339,7 +339,7 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4" />
                     <span className="text-sm font-medium">
-                      {selectedResume.parent_id ? 'Tailored Variant' : 'Base Resume'} (v{selectedResume.version})
+                      {selectedResume.family_name || (selectedResume.parent_id ? 'Tailored Variant' : 'Base Resume')} (v{selectedResume.version})
                     </span>
                   </div>
                   <Badge variant="outline" className="text-xs">

@@ -21,6 +21,7 @@ from app.core.database import SessionLocal
 from app.models import (
     Application,
     ApplicationPipelineStatus,
+    ApplicationStatus,
     BrowserCheckpoint,
     BrowserPauseReason,
     BrowserSession,
@@ -321,6 +322,12 @@ async def _run_task(task: WorkflowTask, db: Session) -> None:
     application.pipeline_status = (
         ApplicationPipelineStatus.confirmed if result.get("confirmed") else ApplicationPipelineStatus.submitted
     )
+    # application.status is the coarse, human-facing status shown as the
+    # primary badge on the application detail page; without this it stays
+    # "draft" forever even once pipeline_status reaches confirmed/submitted,
+    # showing a contradictory "draft" badge right next to "Pipeline status:
+    # confirmed" for an application that has actually been sent to the ATS.
+    application.status = ApplicationStatus.submitted
     metadata["step"] = "submitted"
     metadata["confirmed"] = result.get("confirmed", False)
     metadata["application_id"] = result.get("application_id")

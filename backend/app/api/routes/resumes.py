@@ -7,7 +7,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import CurrentUser
 from app.core.database import get_db
@@ -58,9 +58,18 @@ def list_resume_versions(
         db.query(ResumeVersion)
         .join(ResumeFamily, ResumeVersion.family_id == ResumeFamily.id)
         .filter(ResumeFamily.user_id == current_user.id)
+        .options(joinedload(ResumeVersion.family))
         .order_by(ResumeVersion.created_at.desc())
         .all()
     )
+    # Every consumer of this endpoint (resume pickers on the prepare-application
+    # page, job resume recommendation, application detail sidebar) otherwise has
+    # no way to tell two resume versions apart beyond a generic "Base Resume
+    # (vN)" label - with more than one resume family (the normal case), every
+    # entry in a picker renders identically. joinedload above means this is a
+    # single query, not N+1.
+    for version in versions:
+        version.family_name = version.family.name
     return versions
 
 

@@ -90,35 +90,46 @@ async def resolve_field_value(field: FormField, ctx: RunContext, app_data_dict: 
         learned = await _get_learned_mappings(ctx, form_fingerprint)
         canonical = learned.get(field.name)
         if canonical and canonical in app_data_dict and app_data_dict[canonical] is not None:
-            # record_mapping is an upsert - for an already-known mapping this
-            # only bumps use_count/last_used_at, so "reviewable" mappings
-            # accurately reflect what's actually being reused vs. learned
-            # once and never hit again.
-            await record_mapping(
-                ats_platform=ctx.ats_platform,
-                domain=ctx.tenant_key,
-                form_fingerprint=form_fingerprint,
-                field_name=field.name,
-                label=field.label,
-                canonical_name=canonical,
-            )
-            ctx.field_sources[field.name] = "learned_mapping"
-            return app_data_dict[canonical]
+            constrained = _constrain_to_options(str(app_data_dict[canonical]), field)
+            if constrained is not None:
+                # record_mapping is an upsert - for an already-known mapping this
+                # only bumps use_count/last_used_at, so "reviewable" mappings
+                # accurately reflect what's actually being reused vs. learned
+                # once and never hit again.
+                await record_mapping(
+                    ats_platform=ctx.ats_platform,
+                    domain=ctx.tenant_key,
+                    form_fingerprint=form_fingerprint,
+                    field_name=field.name,
+                    label=field.label,
+                    canonical_name=canonical,
+                )
+                ctx.field_sources[field.name] = "learned_mapping"
+                return constrained
+            # A select field whose stored value doesn't match any of this
+            # form's actual options (e.g. profile.work_authorization = "US
+            # Citizen" against a plain Yes/No <select>) falls through to the
+            # remaining resolution steps below instead of returning a value
+            # that select_option() would reject outright, stalling the
+            # worker on a required field until it times out.
 
     canonical_name = ctx.field_mapper.map_to_canonical(field)
     value = ctx.field_mapper.get_value_for_field(field, app_data_dict)
     if value is not None:
-        if form_fingerprint and canonical_name:
-            await record_mapping(
-                ats_platform=ctx.ats_platform,
-                domain=ctx.tenant_key,
-                form_fingerprint=form_fingerprint,
-                field_name=field.name,
-                label=field.label,
-                canonical_name=canonical_name,
-            )
-        ctx.field_sources[field.name] = "regex"
-        return value
+        constrained = _constrain_to_options(str(value), field)
+        if constrained is not None:
+            if form_fingerprint and canonical_name:
+                await record_mapping(
+                    ats_platform=ctx.ats_platform,
+                    domain=ctx.tenant_key,
+                    form_fingerprint=form_fingerprint,
+                    field_name=field.name,
+                    label=field.label,
+                    canonical_name=canonical_name,
+                )
+            ctx.field_sources[field.name] = "regex"
+            return constrained
+        # Same fallback as above - don't return a value select_option() can't use.
 
     if ctx.answered_question and ctx.answered_question.get("field_name") == field.name:
         raw = str(ctx.answered_question["answer_text"])

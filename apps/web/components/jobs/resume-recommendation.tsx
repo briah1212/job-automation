@@ -33,7 +33,7 @@ export function ResumeRecommendation({
         </div>
         <CardDescription className="text-base font-medium">
           {recommendedResume
-            ? `${recommendedResume.parent_id ? 'Tailored Variant' : 'Base Resume'} (v${recommendedResume.version})`
+            ? `${recommendedResume.family_name || (recommendedResume.parent_id ? 'Tailored Variant' : 'Base Resume')} (v${recommendedResume.version})`
             : 'Resume'}
         </CardDescription>
       </CardHeader>

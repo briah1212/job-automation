@@ -52,6 +52,7 @@ class ResumeVersion(ResumeVersionBase):
     file_path: Optional[str]
     file_hash: Optional[str]
     parsed_data: Dict[str, Any]
+    family_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     

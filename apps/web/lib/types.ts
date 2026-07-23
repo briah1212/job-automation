@@ -53,6 +53,7 @@ export interface ResumeVersion {
   file_path?: string
   file_hash?: string
   parsed_data?: any
+  family_name?: string
   created_at: string
   updated_at: string
 }
