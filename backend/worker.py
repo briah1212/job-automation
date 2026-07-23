@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import html as html_lib
 import logging
+import os
 import re
 import time
 from datetime import datetime
@@ -36,6 +37,22 @@ _HTTP_TIMEOUT_SECONDS = 10.0
 _USER_AGENT = "job-automation-worker/1.0 (+https://github.com/brianhsu/job-automation)"
 _MAX_DESCRIPTION_CHARS = 5000
 _POLL_INTERVAL_SECONDS = 5
+
+# browser-worker's render_server.py (see that module's docstring) - a plain
+# httpx GET has no JS engine at all, so a client-rendered SPA (confirmed
+# live, repeatedly: Ashby's job board, a Workday-hosted posting) comes back
+# as a near-empty shell or literally nothing. This container has no browser
+# dependency of its own; browser-worker already does, for application
+# automation, so extraction reuses that instead of installing a second one.
+_RENDER_SERVER_URL = os.environ.get("BROWSER_WORKER_RENDER_URL", "http://browser-worker:8100")
+_INTERNAL_API_KEY = os.environ.get("INTERNAL_API_KEY", "")
+_RENDER_TIMEOUT_SECONDS = 30.0
+# Below this, treat the httpx fetch's result as "probably needed JS" rather
+# than "genuinely a short page" - calibrated against real examples this
+# session: an SPA's unrendered shell text ("You need to enable JavaScript
+# to run this app.") is 91 chars; every genuine job posting fetched
+# successfully this session was several thousand.
+_THIN_CONTENT_CHARS = 300
 # Discovery hits real third-party APIs, so it runs far less often than the
 # task poll - every 15 minutes is frequent enough to catch new postings
 # same-day without hammering Greenhouse/Lever/Ashby's public endpoints.
@@ -68,12 +85,44 @@ def _strip_html(raw_html: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+async def _fetch_via_browser(url: str) -> tuple[str, bool]:
+    """Fall back to browser-worker's render_server.py for a URL whose plain
+    HTTP fetch came back empty/thin - see _RENDER_SERVER_URL's comment."""
+    try:
+        async with httpx.AsyncClient(timeout=_RENDER_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"{_RENDER_SERVER_URL}/render",
+                headers={"X-Internal-Api-Key": _INTERNAL_API_KEY},
+                json={"url": url},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:
+        logger.warning("Browser-render fallback failed for %s: %s", url, exc)
+        return "", False
+
+    if not data.get("success"):
+        logger.warning("Browser-render fallback reported failure for %s: %s", url, data.get("error"))
+        return "", False
+
+    # Already plain visible text (render_server.py strips script/style
+    # itself) - just collapse whitespace, matching _strip_html's own tail.
+    text = re.sub(r"\s+", " ", data.get("text") or "").strip()
+    return text, bool(text)
+
+
 async def _fetch_raw_text(url: str) -> tuple[str, bool]:
     """Fetch a job posting URL and return (plain_text, fetch_succeeded).
 
     On any fetch failure (timeout, connection error, non-200 status), logs a
     warning and returns a minimal fallback (just the URL) rather than raising,
     so the extraction pipeline doesn't get stuck on an unreachable page.
+
+    Tries a plain HTTP fetch first (cheap, fast, sufficient for most sites),
+    and only falls back to a real browser render (_fetch_via_browser) when
+    that comes back empty or suspiciously thin - most job postings don't
+    need a browser at all, so paying Chromium's cost on every single fetch
+    would be wasteful.
     """
     try:
         # httpx defaults to NOT following redirects, and raise_for_status()
@@ -85,10 +134,25 @@ async def _fetch_raw_text(url: str) -> tuple[str, bool]:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             response = await client.get(url, headers={"User-Agent": _USER_AGENT})
             response.raise_for_status()
-            return _strip_html(response.text), True
+            text = _strip_html(response.text)
     except Exception as exc:
         logger.warning("Failed to fetch job posting URL %s: %s", url, exc)
-        return url, False
+        text = ""
+
+    if len(text) >= _THIN_CONTENT_CHARS:
+        return text, True
+
+    logger.info(
+        "Plain HTTP fetch for %s returned only %d chars - falling back to browser render",
+        url, len(text),
+    )
+    rendered_text, rendered_success = await _fetch_via_browser(url)
+    if rendered_success:
+        return rendered_text, True
+
+    # Neither approach got real content - keep whatever thin/empty text the
+    # plain fetch produced (still better than nothing) rather than losing it.
+    return text or url, bool(text)
 
 
 async def process_extraction_task(task: WorkflowTask, db: Session) -> None:

@@ -394,6 +394,23 @@ async def poll_loop() -> None:
             db.close()
 
 
+async def _run_render_server() -> None:
+    """Runs render_server.py's FastAPI app in this same process/container -
+    see render_server.py's module docstring for why (needs Playwright,
+    already installed here and nowhere else)."""
+    import uvicorn
+
+    from .render_server import app as render_app
+
+    config = uvicorn.Config(render_app, host="0.0.0.0", port=8100, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+async def _main() -> None:
+    await asyncio.gather(poll_loop(), _run_render_server())
+
+
 if __name__ == "__main__":
-    logger.info("Starting browser submission worker poll loop")
-    asyncio.run(poll_loop())
+    logger.info("Starting browser submission worker poll loop and render server")
+    asyncio.run(_main())

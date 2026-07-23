@@ -191,7 +191,12 @@ class TestProcessExtractionTask:
         db.add(task)
         db.commit()
 
-        with patch("httpx.AsyncClient.get", new=AsyncMock(side_effect=Exception("connection refused"))):
+        # Simulates total fetch failure: both the direct httpx GET and the
+        # browser-render fallback (worker._fetch_via_browser) fail. Without
+        # mocking the fallback too, this would make a real network call to
+        # the render server/example.com and mask the scenario under test.
+        with patch("httpx.AsyncClient.get", new=AsyncMock(side_effect=Exception("connection refused"))), \
+                patch("worker._fetch_via_browser", new=AsyncMock(return_value=("", False))):
             await process_extraction_task(task, db)
             db.commit()
 
@@ -202,6 +207,47 @@ class TestProcessExtractionTask:
         # (with sparse data) rather than being marked failed.
         assert task.status == WorkflowStatus.completed
         assert job.extracted_data.get("fetch_warning")
+
+    @pytest.mark.asyncio
+    async def test_process_extraction_task_falls_back_to_browser_render_on_thin_content(self, db):
+        """A plain httpx GET against a client-rendered SPA (Ashby, Workday,
+        etc.) routinely succeeds with a 200 but near-empty body - the real
+        content only exists after JS execution. Confirmed live this session
+        against a real Workday posting: the direct fetch returned nothing
+        useful while a real browser render returned the full description.
+        worker._fetch_raw_text should treat that thin result as a fetch
+        failure and fall back to _fetch_via_browser rather than reporting
+        success with near-nothing to show for it."""
+        user, job = self._make_user_and_job(db)
+
+        task = WorkflowTask(
+            workflow_type="job_extraction",
+            entity_id=job.id,
+            status=WorkflowStatus.running,
+        )
+        db.add(task)
+        db.commit()
+
+        mock_response = AsyncMock()
+        mock_response.text = "<html><body>Loading...</body></html>"
+        mock_response.status_code = 200
+        mock_response.raise_for_status = lambda: None
+
+        rendered_text = (
+            "Senior Data Engineer at Example Corp. " + "Great job with real responsibilities. " * 10
+        )
+
+        with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)), \
+                patch("worker._fetch_via_browser", new=AsyncMock(return_value=(rendered_text, True))):
+            await process_extraction_task(task, db)
+            db.commit()
+
+        db.refresh(job)
+        db.refresh(task)
+
+        assert task.status == WorkflowStatus.completed
+        assert not job.extracted_data.get("fetch_warning")
+        assert job.extracted_data["raw_text_length"] == len(rendered_text)
 
     @pytest.mark.asyncio
     async def test_process_extraction_task_preserves_authoritative_company_and_title(self, db):
