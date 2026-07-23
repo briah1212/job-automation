@@ -45,7 +45,7 @@ def _clean_html(raw: Optional[str]) -> Optional[str]:
 
 async def fetch_greenhouse_jobs(board_token: str) -> list[dict[str, Any]]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true"
-    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
         response = await client.get(url, headers={"User-Agent": _USER_AGENT})
         response.raise_for_status()
         data = response.json()
@@ -64,7 +64,7 @@ async def fetch_greenhouse_jobs(board_token: str) -> list[dict[str, Any]]:
 
 async def fetch_lever_jobs(company: str) -> list[dict[str, Any]]:
     url = f"https://api.lever.co/v0/postings/{company}?mode=json"
-    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
         response = await client.get(url, headers={"User-Agent": _USER_AGENT})
         response.raise_for_status()
         data = response.json()
@@ -83,7 +83,7 @@ async def fetch_lever_jobs(company: str) -> list[dict[str, Any]]:
 
 async def fetch_ashby_jobs(board_name: str) -> list[dict[str, Any]]:
     url = f"https://api.ashbyhq.com/posting-api/job-board/{board_name}"
-    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
         response = await client.get(url, headers={"User-Agent": _USER_AGENT})
         response.raise_for_status()
         data = response.json()

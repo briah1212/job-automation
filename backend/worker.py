@@ -65,7 +65,13 @@ async def _fetch_raw_text(url: str) -> tuple[str, bool]:
     so the extraction pipeline doesn't get stuck on an unreachable page.
     """
     try:
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+        # httpx defaults to NOT following redirects, and raise_for_status()
+        # treats an unfollowed redirect as an error - so without this, any
+        # URL that 301/302s (trailing-slash normalization, an expired
+        # Greenhouse job id redirecting to the company's live careers page,
+        # etc.) silently produced zero real content instead of the page
+        # actually at the other end of a completely ordinary redirect.
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             response = await client.get(url, headers={"User-Agent": _USER_AGENT})
             response.raise_for_status()
             return _strip_html(response.text), True

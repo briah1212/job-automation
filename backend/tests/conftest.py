@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+import os
+
+# The test suite must stay hermetic regardless of which AI provider the
+# actual running app is configured to use - AIGateway/BaseAgent default to
+# os.getenv("AI_PROVIDER") when no provider is passed explicitly, so without
+# this, flipping the deployment's real AI_PROVIDER (e.g. mock -> deepseek)
+# silently makes every test that constructs an agent without an explicit
+# provider start making real, billed, non-deterministic API calls. Set at
+# import time (before any test module or fixture runs) so it's already in
+# place for every agent constructed anywhere in the suite.
+os.environ["AI_PROVIDER"] = "mock"
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

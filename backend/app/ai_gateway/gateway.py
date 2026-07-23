@@ -5,7 +5,7 @@ from typing import Type, Optional
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .providers import AIProvider, MockProvider, AnthropicProvider, OpenAIProvider
+from .providers import AIProvider, MockProvider, AnthropicProvider, OpenAIProvider, DeepSeekProvider
 from .cost_tracker import CostTracker
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,14 @@ class AIGateway:
                 logger.warning("No OpenAI API key found, falling back to mock provider")
                 return MockProvider(**kwargs)
             return OpenAIProvider(api_key=api_key, **kwargs)
-        
+
+        elif provider_name == "deepseek":
+            api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+            if not api_key:
+                logger.warning("No DeepSeek API key found, falling back to mock provider")
+                return MockProvider(**kwargs)
+            return DeepSeekProvider(api_key=api_key, **kwargs)
+
         else:
             logger.error(f"Unknown provider: {provider_name}, falling back to mock")
             return MockProvider(**kwargs)
