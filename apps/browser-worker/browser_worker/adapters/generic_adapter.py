@@ -455,10 +455,34 @@ class GenericAdapter(ATSAdapter):
             logger.error(f"Error submitting: {e}")
             return SubmissionResult(success=False, error=str(e))
 
+    @staticmethod
+    async def _visible_body_text(page: Page) -> str:
+        """document.body.textContent (what page.text_content("body") uses
+        under the hood) includes the text content of <script> and <style>
+        elements, not just genuinely visible page text - a modern React/
+        Next.js SPA routinely embeds a full JSON hydration payload in a
+        <script> tag containing templates/config for states the user isn't
+        even looking at. Confirmed live on a real Ashby posting: its
+        hydration payload contains the literal post-submission message
+        ("applicationSubmittedSuccessMessage": "Thank you for applying...")
+        on the ordinary, pre-submission landing page, which was enough on
+        its own (plus an unrelated "confirmation" substring inside an
+        internal JSON key name, appConfirmationTrackingPixelHtml) to clear
+        detect_confirmation's threshold and report the application as
+        successfully submitted and confirmed before the automation had
+        filled in a single field."""
+        return await page.evaluate(
+            """() => {
+                const clone = document.body.cloneNode(true);
+                clone.querySelectorAll('script, style').forEach(el => el.remove());
+                return clone.textContent || '';
+            }"""
+        )
+
     async def detect_confirmation(self, page: Page) -> ConfirmationResult:
         """Generic confirmation detection"""
         try:
-            body_text = await page.text_content("body")
+            body_text = await self._visible_body_text(page)
             body_lower = body_text.lower()
 
             confirmation_keywords = [
@@ -597,7 +621,10 @@ class GenericAdapter(ATSAdapter):
                 unchecked_required_checkbox = True
                 break
 
-        body_text = ((await page.text_content("body")) or "").lower()
+        # See _visible_body_text - excludes <script>/<style> element text
+        # (e.g. a SPA's JSON hydration payload) from the keyword-matching
+        # signals below (email-verification detection in particular).
+        body_text = (await self._visible_body_text(page)).lower()
 
         return {
             "url": url,

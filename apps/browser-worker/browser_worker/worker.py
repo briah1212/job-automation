@@ -396,7 +396,15 @@ class BrowserWorker:
                     "session_id": ctx.session_id,
                 }
 
-            progress_snapshot = (state, tuple(sorted(ctx.filled_fields.items())))
+            # Field *names*, not values - an AI-generated answer can come
+            # back slightly differently worded each time (non-zero
+            # temperature), which would make an items()-based snapshot
+            # look "different" every single iteration even though it's
+            # genuinely the same fields being re-answered in a stuck loop.
+            # Confirmed live: a real Ashby posting with two AI-answered
+            # required custom questions never tripped the original
+            # items()-based check at all, for exactly this reason.
+            progress_snapshot = (state, tuple(sorted(ctx.filled_fields.keys())))
             if progress_snapshot == last_progress_snapshot:
                 no_progress_streak += 1
                 if no_progress_streak >= MAX_NO_PROGRESS_STREAK:
