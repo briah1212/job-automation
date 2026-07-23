@@ -20,14 +20,11 @@ from app.models import (
 from app.schemas.application_qa import (
     GenerateQuestionsRequest,
     QuestionWithAnswer,
-    ReusableAnswerCreateRequest,
-    ReusableAnswerResponse,
     UpdateAnswerRequest,
 )
 from app.services.profile_fact_extraction import extract_facts_for_user
 
 router = APIRouter(prefix="/applications", tags=["application-questions"])
-answers_router = APIRouter(prefix="/answers", tags=["reusable-answers"])
 
 
 # Default fallback questions used when the job posting has no extracted questions and
@@ -282,48 +279,3 @@ def update_answer(
     db.refresh(question)
     db.refresh(question.answer)
     return _to_question_with_answer(question)
-
-
-@answers_router.post("", response_model=ReusableAnswerResponse, status_code=status.HTTP_201_CREATED)
-def create_reusable_answer(
-    answer_in: ReusableAnswerCreateRequest,
-    current_user: CurrentUser,
-    db: Annotated[Session, Depends(get_db)],
-) -> ReusableAnswer:
-    """Create a new reusable answer for the current user."""
-    answer = ReusableAnswer(
-        user_id=current_user.id,
-        canonical_question=answer_in.canonical_question,
-        semantic_variants=answer_in.semantic_variants,
-        exact_answer=answer_in.exact_answer,
-        allowed_paraphrasing=answer_in.allowed_paraphrasing,
-        risk_level=answer_in.risk_level,
-        categories=answer_in.categories,
-        expiration_date=answer_in.expiration_date,
-        user_approved=answer_in.user_approved,
-    )
-    db.add(answer)
-    db.commit()
-    db.refresh(answer)
-    return answer
-
-
-@answers_router.post("/{answer_id}/approve", response_model=ReusableAnswerResponse)
-def approve_reusable_answer(
-    answer_id: uuid.UUID,
-    current_user: CurrentUser,
-    db: Annotated[Session, Depends(get_db)],
-) -> ReusableAnswer:
-    """Mark a reusable answer as user-approved."""
-    answer = (
-        db.query(ReusableAnswer)
-        .filter(ReusableAnswer.id == answer_id, ReusableAnswer.user_id == current_user.id)
-        .first()
-    )
-    if not answer:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reusable answer not found")
-
-    answer.user_approved = True
-    db.commit()
-    db.refresh(answer)
-    return answer
