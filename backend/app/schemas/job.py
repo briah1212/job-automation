@@ -41,6 +41,7 @@ class Job(JobBase):
     user_id: UUID
     status: JobStatus
     score: Optional[float]
+    match_score: Optional[int] = None
     extracted_data: Dict[str, Any]
     created_at: datetime
     updated_at: datetime

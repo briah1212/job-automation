@@ -37,66 +37,89 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
 
   // Fetch base application (and nested/linked job)
   useEffect(() => {
+    // Guards against applications/A -> applications/B navigation reusing
+    // this component instance - a slow response for A landing after a fast
+    // response for B would otherwise silently overwrite B's data with A's.
+    let cancelled = false
+    setApplication(null)
+    setJob(null)
+
     const fetchApplication = async () => {
       try {
         setLoadingApplication(true)
         const data = await apiClient.getApplication(params.id)
+        if (cancelled) return
         setApplication(data)
         if (data.job) {
           setJob(data.job)
         } else if (data.job_id) {
           try {
             const jobData = await apiClient.getJob(data.job_id)
-            setJob(jobData)
+            if (!cancelled) setJob(jobData)
           } catch (err) {
             console.error('Failed to load job for application:', err)
           }
         }
       } catch (err) {
-        setError('Failed to load application details')
-        console.error(err)
+        if (!cancelled) {
+          setError('Failed to load application details')
+          console.error(err)
+        }
       } finally {
-        setLoadingApplication(false)
+        if (!cancelled) setLoadingApplication(false)
       }
     }
 
     fetchApplication()
+    return () => {
+      cancelled = true
+    }
   }, [params.id])
 
   // Fetch application questions (may not exist yet - not treated as an error)
   useEffect(() => {
+    let cancelled = false
+
     const fetchQuestions = async () => {
       try {
         setLoadingQuestions(true)
         const data = await apiClient.getApplicationQuestions(params.id)
-        setQuestions(data)
+        if (!cancelled) setQuestions(data)
       } catch (err) {
         console.error('No application questions available yet:', err)
-        setQuestions([])
+        if (!cancelled) setQuestions([])
       } finally {
-        setLoadingQuestions(false)
+        if (!cancelled) setLoadingQuestions(false)
       }
     }
 
     fetchQuestions()
+    return () => {
+      cancelled = true
+    }
   }, [params.id])
 
   // Fetch existing review result (may not exist yet - not treated as an error)
   useEffect(() => {
+    let cancelled = false
+
     const fetchReview = async () => {
       try {
         setLoadingReview(true)
         const data = await apiClient.getReviewResult(params.id)
-        setReview(data)
+        if (!cancelled) setReview(data)
       } catch (err) {
         console.error('No review result available yet:', err)
-        setReview(null)
+        if (!cancelled) setReview(null)
       } finally {
-        setLoadingReview(false)
+        if (!cancelled) setLoadingReview(false)
       }
     }
 
     fetchReview()
+    return () => {
+      cancelled = true
+    }
   }, [params.id])
 
   // Fetch resume versions to resolve the selected resume by id
@@ -123,7 +146,7 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
       const data = await apiClient.generateApplicationQA(params.id)
       setQuestions(data)
     } catch (err) {
-      setError('Failed to generate application questions')
+      setError((err as Error).message || 'Failed to generate application questions')
       console.error(err)
     } finally {
       setGeneratingQuestions(false)
@@ -154,7 +177,7 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
       const data = await apiClient.autoReviewApplication(params.id)
       setReview(data)
     } catch (err) {
-      setError('Failed to run application review')
+      setError((err as Error).message || 'Failed to run application review')
       console.error(err)
     } finally {
       setRunningReview(false)
@@ -228,7 +251,7 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
                     <span>{job.title}</span>
                   </div>
                   <div className="flex gap-2">
-                    {job.score != null && <Badge>{job.score}% Match</Badge>}
+                    {job.match_score != null && <Badge>{job.match_score}% Match</Badge>}
                     {job.location && <Badge variant="outline">{job.location}</Badge>}
                   </div>
                 </>

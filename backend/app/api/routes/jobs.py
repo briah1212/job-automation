@@ -8,11 +8,31 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser
 from app.core.database import get_db
-from app.models import CanonicalJob, JobStatus, WorkflowStatus, WorkflowTask
+from app.models import CanonicalJob, JobMatchScore, JobStatus, WorkflowStatus, WorkflowTask
 from app.schemas import JobCreate, JobImportUrl, JobScore
 from app.schemas.job import Job as JobSchema
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+def _attach_match_scores(db: Session, jobs: list[CanonicalJob], user_id: uuid.UUID) -> None:
+    """Populate the transient match_score attribute from the latest JobMatchScore row.
+
+    CanonicalJob.score is a separate legacy field that nothing in the app
+    writes to anymore - the real "Calculate Match Score" flow only writes to
+    JobMatchScore, so without this every score-dependent view (list, filter,
+    sort) would silently show nothing even when a score has been calculated.
+    """
+    if not jobs:
+        return
+    job_ids = [job.id for job in jobs]
+    rows = db.query(JobMatchScore.job_id, JobMatchScore.overall_score).filter(
+        JobMatchScore.user_id == user_id,
+        JobMatchScore.job_id.in_(job_ids)
+    ).all()
+    score_map = {job_id: overall_score for job_id, overall_score in rows}
+    for job in jobs:
+        job.match_score = score_map.get(job.id)
 
 
 @router.get("", response_model=list[JobSchema])
@@ -30,6 +50,7 @@ def list_jobs(
         query = query.filter(CanonicalJob.status == status_filter)
     
     jobs = query.order_by(CanonicalJob.created_at.desc()).offset(skip).limit(limit).all()
+    _attach_match_scores(db, jobs, current_user.id)
     return jobs
 
 
@@ -50,7 +71,8 @@ def get_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
-    
+
+    _attach_match_scores(db, [job], current_user.id)
     return job
 
 
@@ -82,6 +104,7 @@ def import_job_from_url(
     db.add(workflow_task)
     db.commit()
 
+    _attach_match_scores(db, [job], current_user.id)
     return job
 
 
@@ -108,13 +131,14 @@ def score_job(
     job.status = JobStatus.scored
     db.commit()
     db.refresh(job)
+    _attach_match_scores(db, [job], current_user.id)
     return job
 
 
 # Additional imports for matching and resume selection
 from app.agents.matching_agent import MatchingAgent
 from app.agents.resume_selection_agent import ResumeSelectionAgent
-from app.models import JobMatchScore, Profile, ResumeFamily, SearchProfile
+from app.models import Profile, ResumeFamily, SearchProfile
 from app.schemas.job_match import JobMatchScore as JobMatchScoreSchema, ResumeSelectionResult
 
 

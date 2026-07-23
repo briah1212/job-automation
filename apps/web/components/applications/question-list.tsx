@@ -64,7 +64,7 @@ function QuestionItem({
       await apiClient.updateApplicationAnswer(applicationId, question.id, text)
       onAnswerUpdate(question.id, text)
     } catch (err) {
-      setError('Failed to save answer')
+      setError((err as Error).message || 'Failed to save answer')
       console.error(err)
     } finally {
       setSaving(false)
@@ -83,7 +83,7 @@ function QuestionItem({
       })
       setReusableSaved(true)
     } catch (err) {
-      setError('Failed to save reusable answer')
+      setError((err as Error).message || 'Failed to save reusable answer')
       console.error(err)
     } finally {
       setSavingReusable(false)

@@ -62,10 +62,13 @@ export default function EditSearchProfilePage({ params }: { params: { id: string
   })
 
   useEffect(() => {
+    let cancelled = false
+
     const load = async () => {
       try {
         setLoading(true)
         const profile = await apiClient.getSearchProfile(params.id)
+        if (cancelled) return
         setSelectedCategories(profile.career_categories)
         reset({
           name: profile.name,
@@ -79,14 +82,19 @@ export default function EditSearchProfilePage({ params }: { params: { id: string
           excluded_companies: profile.excluded_companies.join(', '),
         })
       } catch (err) {
-        const status = (err as { status?: number } | undefined)?.status
-        if (status === 404) setNotFound(true)
-        console.error('Failed to load search profile:', err)
+        if (!cancelled) {
+          const status = (err as { status?: number } | undefined)?.status
+          if (status === 404) setNotFound(true)
+          console.error('Failed to load search profile:', err)
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     load()
+    return () => {
+      cancelled = true
+    }
   }, [params.id, reset])
 
   const handleCategoryToggle = (category: string) => {
@@ -120,6 +128,16 @@ export default function EditSearchProfilePage({ params }: { params: { id: string
       router.push('/dashboard/search-profiles')
     } catch (error) {
       console.error('Failed to update search profile:', error)
+      const status = (error as { status?: number } | undefined)?.status
+      if (status === 404) {
+        // Someone (or another tab) deleted this profile while it was open
+        // for editing - there's nothing left to save it back to, so send
+        // the user back to the list instead of leaving them stuck retrying
+        // a PATCH against a resource that no longer exists.
+        alert('This search profile no longer exists - it may have been deleted.')
+        router.push('/dashboard/search-profiles')
+        return
+      }
       alert('Failed to update search profile. Please try again.')
     } finally {
       setSaving(false)

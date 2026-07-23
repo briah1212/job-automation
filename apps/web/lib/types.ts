@@ -80,7 +80,10 @@ export interface Job {
     | "approved"
     | "rejected_by_rule"
     | "archived"
+  /** @deprecated legacy field, nothing writes to this anymore - use match_score */
   score?: number
+  /** Latest calculated match score (0-100), from JobMatchScore.overall_score */
+  match_score?: number | null
   created_at: string
   updated_at: string
 }

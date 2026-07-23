@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -74,26 +75,87 @@ interface Filters {
   search: string
 }
 
+const DEFAULT_FILTERS: Filters = {
+  categories: [],
+  scoreRange: [0, 100],
+  location: '',
+  remotePolicies: [],
+  salaryRange: [0, 500000],
+  statuses: [],
+  search: '',
+}
+
+// Filters and sort live in the URL (not just component state) so that
+// clicking into a job and hitting Back restores exactly what was searched
+// for/filtered - without this, Back silently resets to an empty search,
+// which reads as "my search got lost" even though nothing else changed.
+function filtersFromSearchParams(params: URLSearchParams): { filters: Filters; sortBy: SortOption } {
+  const csv = (key: string) => {
+    const v = params.get(key)
+    return v ? v.split(',').filter(Boolean) : []
+  }
+  const range = (key: string, fallback: [number, number]): [number, number] => {
+    const v = params.get(key)
+    if (!v) return fallback
+    const [min, max] = v.split('-').map(Number)
+    if (Number.isNaN(min) || Number.isNaN(max)) return fallback
+    return [min, max]
+  }
+  const sortParam = params.get('sort')
+  return {
+    filters: {
+      categories: csv('categories'),
+      scoreRange: range('score', DEFAULT_FILTERS.scoreRange),
+      location: params.get('location') ?? '',
+      remotePolicies: csv('remote'),
+      salaryRange: range('salary', DEFAULT_FILTERS.salaryRange),
+      statuses: csv('status'),
+      search: params.get('q') ?? '',
+    },
+    sortBy: sortParam === 'date' || sortParam === 'salary' ? sortParam : 'score',
+  }
+}
+
+function filtersToSearchParams(filters: Filters, sortBy: SortOption): URLSearchParams {
+  const params = new URLSearchParams()
+  if (filters.search) params.set('q', filters.search)
+  if (filters.categories.length) params.set('categories', filters.categories.join(','))
+  if (filters.remotePolicies.length) params.set('remote', filters.remotePolicies.join(','))
+  if (filters.statuses.length) params.set('status', filters.statuses.join(','))
+  if (filters.location) params.set('location', filters.location)
+  if (filters.scoreRange[0] !== 0 || filters.scoreRange[1] !== 100) {
+    params.set('score', `${filters.scoreRange[0]}-${filters.scoreRange[1]}`)
+  }
+  if (filters.salaryRange[0] !== 0 || filters.salaryRange[1] !== 500000) {
+    params.set('salary', `${filters.salaryRange[0]}-${filters.salaryRange[1]}`)
+  }
+  if (sortBy !== 'score') params.set('sort', sortBy)
+  return params
+}
+
 export default function JobsPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialFromUrl = filtersFromSearchParams(searchParams)
+
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [showFilters, setShowFilters] = useState(true)
-  const [sortBy, setSortBy] = useState<SortOption>('score')
+  const [sortBy, setSortBy] = useState<SortOption>(initialFromUrl.sortBy)
 
   const [importOpen, setImportOpen] = useState(false)
   const [importUrl, setImportUrl] = useState('')
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
 
-  const [filters, setFilters] = useState<Filters>({
-    categories: [],
-    scoreRange: [0, 100],
-    location: '',
-    remotePolicies: [],
-    salaryRange: [0, 500000],
-    statuses: [],
-    search: '',
-  })
+  const [filters, setFilters] = useState<Filters>(initialFromUrl.filters)
+
+  // Keep the URL in sync with the current search/filters/sort so Back,
+  // Forward, and refresh all restore the same view instead of resetting it.
+  useEffect(() => {
+    const qs = filtersToSearchParams(filters, sortBy).toString()
+    router.replace(qs ? `/dashboard/jobs?${qs}` : '/dashboard/jobs', { scroll: false })
+  }, [filters, sortBy, router])
 
   const fetchJobs = async () => {
     setLoading(true)
@@ -160,8 +222,8 @@ export default function JobsPage() {
     }
 
     // Match score range filter
-    if (job.score != null) {
-      if (job.score < filters.scoreRange[0] || job.score > filters.scoreRange[1]) {
+    if (job.match_score != null) {
+      if (job.match_score < filters.scoreRange[0] || job.match_score > filters.scoreRange[1]) {
         return false
       }
     } else if (filters.scoreRange[0] > 0) {
@@ -204,7 +266,7 @@ export default function JobsPage() {
   const sortedJobs = [...filteredJobs].sort((a, b) => {
     switch (sortBy) {
       case 'score':
-        return (b.score || 0) - (a.score || 0)
+        return (b.match_score || 0) - (a.match_score || 0)
       case 'date':
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       case 'salary':
@@ -495,7 +557,7 @@ export default function JobsPage() {
         )}
 
         {/* Jobs Table */}
-        <Card className={showFilters ? 'lg:col-span-3' : 'lg:col-span-4'}>
+        <Card className={`min-w-0 ${showFilters ? 'lg:col-span-3' : 'lg:col-span-4'}`}>
           {loading ? (
             <div className="p-8 text-center text-muted-foreground">
               Loading jobs...
@@ -519,7 +581,7 @@ export default function JobsPage() {
               </TableHeader>
               <TableBody>
                 {sortedJobs.map((job) => {
-                  const scoreBadge = job.score ? getScoreBadgeVariant(job.score) : null
+                  const scoreBadge = job.match_score ? getScoreBadgeVariant(job.match_score) : null
 
                   return (
                     <TableRow key={job.id}>
@@ -536,21 +598,21 @@ export default function JobsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {job.score && scoreBadge ? (
+                        {job.match_score && scoreBadge ? (
                           <div className="flex items-center gap-2">
                             <div
                               className={`w-2 h-2 rounded-full ${scoreBadge.color}`}
                               title={
-                                job.score >= 80
+                                job.match_score >= 80
                                   ? 'Excellent match'
-                                  : job.score >= 60
+                                  : job.match_score >= 60
                                   ? 'Good match'
-                                  : job.score >= 40
+                                  : job.match_score >= 40
                                   ? 'Fair match'
                                   : 'Poor match'
                               }
                             />
-                            <Badge variant={scoreBadge.variant}>{job.score}%</Badge>
+                            <Badge variant={scoreBadge.variant}>{job.match_score}%</Badge>
                           </div>
                         ) : (
                           <span className="text-muted-foreground">—</span>

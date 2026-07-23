@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -35,7 +36,25 @@ export default function RegisterPage() {
         throw new Error(data.detail || 'Registration failed')
       }
 
-      router.push('/auth/login')
+      // Registration already validated these credentials server-side (and
+      // returned a token we're not using here) - making the user re-type
+      // the same email/password they just typed on the previous screen is
+      // pure friction, so sign them in immediately instead of bouncing to
+      // a separate login page.
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      })
+
+      if (result?.error) {
+        // Extremely unlikely (registration just succeeded with these same
+        // credentials), but fall back to the login page rather than get stuck.
+        router.push('/auth/login')
+        return
+      }
+
+      router.push('/dashboard')
     } catch (err: any) {
       setError(err.message)
       setLoading(false)

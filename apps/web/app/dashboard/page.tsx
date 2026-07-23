@@ -135,8 +135,8 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">
-                      {job.score != null && (
-                        <div className="text-sm font-medium text-green-600">{job.score}% Match</div>
+                      {job.match_score != null && (
+                        <div className="text-sm font-medium text-green-600">{job.match_score}% Match</div>
                       )}
                       <div className="text-xs text-muted-foreground">
                         {new Date(job.created_at).toLocaleDateString()}

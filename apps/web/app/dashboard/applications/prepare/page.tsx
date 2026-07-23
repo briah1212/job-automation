@@ -24,6 +24,8 @@ export default function PrepareApplicationPage() {
 
   useEffect(() => {
     if (!jobId) return
+    let cancelled = false
+
     const load = async () => {
       try {
         setLoading(true)
@@ -31,16 +33,22 @@ export default function PrepareApplicationPage() {
           apiClient.getJob(jobId),
           apiClient.getResumeVersions(),
         ])
+        if (cancelled) return
         setJob(jobData)
         setResumes(resumesData)
       } catch (err) {
-        setError('Failed to load job or resumes')
-        console.error(err)
+        if (!cancelled) {
+          setError('Failed to load job or resumes')
+          console.error(err)
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     load()
+    return () => {
+      cancelled = true
+    }
   }, [jobId])
 
   const handleCreate = async () => {

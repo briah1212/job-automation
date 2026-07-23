@@ -31,55 +31,81 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   // Fetch job details
   useEffect(() => {
+    // Guards against jobs/A -> jobs/B navigation reusing this component
+    // instance: without `cancelled`, a slow response for job A landing after
+    // a fast response for job B would silently overwrite B's data with A's.
+    let cancelled = false
+    // Also clear anything from the previous id immediately, so a slow
+    // network doesn't leave the previous job's details on screen under the
+    // new URL while this fetch is in flight.
+    setJob(null)
+    setMatchScore(null)
+    setResumeSelection(null)
+
     const fetchJob = async () => {
       try {
         setLoadingJob(true)
         const jobData = await apiClient.getJob(params.id)
-        setJob(jobData)
+        if (!cancelled) setJob(jobData)
       } catch (err) {
-        setError('Failed to load job details')
-        console.error(err)
+        if (!cancelled) {
+          setError('Failed to load job details')
+          console.error(err)
+        }
       } finally {
-        setLoadingJob(false)
+        if (!cancelled) setLoadingJob(false)
       }
     }
 
     fetchJob()
+    return () => {
+      cancelled = true
+    }
   }, [params.id])
 
   // Fetch match score
   useEffect(() => {
+    let cancelled = false
+
     const fetchMatchScore = async () => {
       try {
         setLoadingMatch(true)
         const matchData = await apiClient.getMatchScore(params.id)
-        setMatchScore(matchData)
+        if (!cancelled) setMatchScore(matchData)
       } catch (err) {
         console.error('Failed to load match score:', err)
         // Don't set error, match score might not exist yet
       } finally {
-        setLoadingMatch(false)
+        if (!cancelled) setLoadingMatch(false)
       }
     }
 
     fetchMatchScore()
+    return () => {
+      cancelled = true
+    }
   }, [params.id])
 
   // Fetch resume versions (resume selection is computed on demand, not persisted for retrieval)
   useEffect(() => {
+    let cancelled = false
+
     const fetchResumes = async () => {
       try {
         setLoadingResumes(true)
         const resumesData = await apiClient.getResumeVersions()
-        setResumes(resumesData)
+        if (!cancelled) setResumes(resumesData)
       } catch (err) {
         console.error('Failed to load resumes:', err)
       } finally {
-        setLoadingResumes(false)
+        if (!cancelled) setLoadingResumes(false)
       }
     }
 
     fetchResumes()
+    return () => {
+      cancelled = true
+    }
   }, [params.id])
 
   const handleSelectResume = async () => {
@@ -89,7 +115,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       const selection = await apiClient.selectResume(params.id)
       setResumeSelection(selection)
     } catch (err) {
-      setError('Failed to select a resume for this job')
+      setError((err as Error).message || 'Failed to select a resume for this job')
       console.error(err)
     } finally {
       setSelectingResume(false)
@@ -104,7 +130,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       const newMatchScore = await apiClient.calculateMatchScore(params.id)
       setMatchScore(newMatchScore)
     } catch (err) {
-      setError('Failed to recalculate match score')
+      setError((err as Error).message || 'Failed to recalculate match score')
       console.error(err)
     } finally {
       setRecalculating(false)

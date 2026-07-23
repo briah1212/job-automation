@@ -63,6 +63,7 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
 
   // Approve/reject state
   const [approving, setApproving] = useState(false)
+  const [approveError, setApproveError] = useState<string | null>(null)
 
   // Locks state
   const [locks, setLocks] = useState<DocumentLock[]>([])
@@ -75,11 +76,26 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
 
   // Fetch resume version + family
   useEffect(() => {
+    // Next.js reuses this component instance across resumes/A -> resumes/B
+    // navigation, so a slow response for the previous id can still land
+    // after this effect re-runs for the new one - `cancelled` stops it from
+    // overwriting the new id's state with the old id's data.
+    let cancelled = false
+    // Reset everything from the previous id up front - otherwise switching
+    // from a deleted/invalid id to a valid one would keep rendering the old
+    // "Resume Not Found" state forever (nothing else flips notFound back to
+    // false), and a family-fetch failure below would silently leave the
+    // previous resume's family info on screen next to the new resume's data.
+    setNotFound(false)
+    setVersion(null)
+    setFamily(null)
+
     const fetchVersion = async () => {
       try {
         setLoading(true)
         setError(null)
         const versions = await apiClient.getResumeVersions()
+        if (cancelled) return
         const found = versions.find((v) => v.id === params.id)
         if (!found) {
           setNotFound(true)
@@ -90,39 +106,50 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
         if (found.family_id) {
           try {
             const families = await apiClient.getResumes()
-            setFamily(families.find((f) => f.id === found.family_id) ?? null)
+            if (!cancelled) {
+              setFamily(families.find((f) => f.id === found.family_id) ?? null)
+            }
           } catch (err) {
             console.error('Failed to load resume family:', err)
           }
         }
       } catch (err) {
-        setError('Failed to load resume version')
-        console.error(err)
+        if (!cancelled) {
+          setError('Failed to load resume version')
+          console.error(err)
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchVersion()
+    return () => {
+      cancelled = true
+    }
   }, [params.id])
 
   // Fetch locks once we know the family id
   useEffect(() => {
     if (!version?.family_id) return
+    let cancelled = false
 
     const fetchLocks = async () => {
       try {
         setLoadingLocks(true)
         const lockData = await apiClient.getResumeLocks(version.family_id)
-        setLocks(lockData)
+        if (!cancelled) setLocks(lockData)
       } catch (err) {
         console.error('Failed to load locks:', err)
       } finally {
-        setLoadingLocks(false)
+        if (!cancelled) setLoadingLocks(false)
       }
     }
 
     fetchLocks()
+    return () => {
+      cancelled = true
+    }
   }, [version?.family_id])
 
   const handleTailor = async () => {
@@ -135,7 +162,7 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
       const result = await apiClient.tailorResume(version.id, jobId.trim())
       setTailorResult(result)
     } catch (err) {
-      setTailorError('Failed to tailor resume')
+      setTailorError((err as Error).message || 'Failed to tailor resume')
       console.error(err)
     } finally {
       setTailoring(false)
@@ -150,7 +177,7 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
       const diffResult = await apiClient.getResumeDiff(tailorResult.resume_version_id, version.id)
       setDiff(diffResult)
     } catch (err) {
-      setDiffError('Failed to load diff')
+      setDiffError((err as Error).message || 'Failed to load diff')
       console.error(err)
     } finally {
       setLoadingDiff(false)
@@ -165,7 +192,7 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
       const rendering = await apiClient.renderResume(version.id, 'pdf')
       setRenderResult(rendering)
     } catch (err) {
-      setRenderError('Failed to render resume')
+      setRenderError((err as Error).message || 'Failed to render resume')
       console.error(err)
     } finally {
       setRendering(false)
@@ -176,10 +203,12 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
     if (!version?.family_id) return
     try {
       setApproving(true)
+      setApproveError(null)
       const updatedFamily = await apiClient.approveResume(version.family_id)
       setFamily(updatedFamily)
     } catch (err) {
-      console.error('Failed to approve resume:', err)
+      setApproveError((err as Error).message || 'Failed to approve resume')
+      console.error(err)
     } finally {
       setApproving(false)
     }
@@ -199,7 +228,7 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
       setTargetRef('')
       setLockValue('')
     } catch (err) {
-      setLockError('Failed to create lock')
+      setLockError((err as Error).message || 'Failed to create lock')
       console.error(err)
     } finally {
       setAddingLock(false)
@@ -294,6 +323,7 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
           </Button>
         </div>
       </div>
+      {approveError && <p className="text-sm text-red-600">{approveError}</p>}
 
       {renderResult && (
         <Card className="border-green-200 bg-green-50">

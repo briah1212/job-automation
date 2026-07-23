@@ -89,7 +89,7 @@ export function CoverLetterCard({ applicationId }: CoverLetterCardProps) {
       setCoverLetter(data)
       setContent(data.content)
     } catch (err) {
-      setActionError('Failed to generate cover letter')
+      setActionError((err as Error).message || 'Failed to generate cover letter')
       console.error(err)
     } finally {
       setGenerating(false)
@@ -104,7 +104,7 @@ export function CoverLetterCard({ applicationId }: CoverLetterCardProps) {
       setCoverLetter(data)
       setContent(data.content)
     } catch (err) {
-      setActionError('Failed to save cover letter')
+      setActionError((err as Error).message || 'Failed to save cover letter')
       console.error(err)
     } finally {
       setSaving(false)

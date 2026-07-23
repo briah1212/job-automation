@@ -36,7 +36,11 @@ export default function SearchProfilesPage() {
   const handleToggleEnabled = async (id: string, currentEnabled: boolean) => {
     try {
       await apiClient.toggleSearchProfile(id, !currentEnabled)
-      setProfiles(profiles.map(p => 
+      // Functional update - toggling two profiles in quick succession means
+      // both requests are in flight at once, so reading `profiles` from the
+      // render closure here would let whichever response lands second
+      // overwrite the other one's change with a stale pre-toggle snapshot.
+      setProfiles(prev => prev.map(p =>
         p.id === id ? { ...p, enabled: !currentEnabled } : p
       ))
     } catch (err) {
@@ -51,7 +55,10 @@ export default function SearchProfilesPage() {
 
     try {
       await apiClient.deleteSearchProfile(id)
-      setProfiles(profiles.filter(p => p.id !== id))
+      // Functional update for the same reason as handleToggleEnabled - avoids
+      // a stale snapshot resurrecting an already-deleted row when two deletes
+      // race.
+      setProfiles(prev => prev.filter(p => p.id !== id))
     } catch (err) {
       alert('Failed to delete profile')
     }
