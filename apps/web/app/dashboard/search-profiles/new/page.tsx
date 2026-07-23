@@ -23,9 +23,7 @@ interface SearchProfileFormData {
   locations: string
   remote_policy: 'required' | 'hybrid_ok' | 'no_preference' | 'onsite_only'
   min_salary: string
-  max_salary: string
-  exclude_companies: string
-  require_visa_sponsorship: boolean
+  excluded_companies: string
 }
 
 const CAREER_CATEGORIES = [
@@ -59,9 +57,7 @@ export default function NewSearchProfilePage() {
       locations: '',
       remote_policy: 'no_preference',
       min_salary: '',
-      max_salary: '',
-      exclude_companies: '',
-      require_visa_sponsorship: false,
+      excluded_companies: '',
     },
   })
 
@@ -105,11 +101,9 @@ export default function NewSearchProfilePage() {
           : [],
         remote_policy: data.remote_policy,
         min_salary: data.min_salary ? parseInt(data.min_salary) : undefined,
-        max_salary: data.max_salary ? parseInt(data.max_salary) : undefined,
-        exclude_companies: data.exclude_companies
-          ? data.exclude_companies.split(',').map((s) => s.trim()).filter(Boolean)
+        excluded_companies: data.excluded_companies
+          ? data.excluded_companies.split(',').map((s) => s.trim()).filter(Boolean)
           : [],
-        require_visa_sponsorship: data.require_visa_sponsorship,
       }
 
       await apiClient.createSearchProfile(payload)
@@ -305,31 +299,20 @@ export default function NewSearchProfilePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Salary Range</CardTitle>
+            <CardTitle>Salary</CardTitle>
             <CardDescription>
-              Set your desired salary range (optional)
+              Set your minimum acceptable salary (optional)
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="min_salary">Minimum Salary (USD)</Label>
-                <Input
-                  id="min_salary"
-                  type="number"
-                  placeholder="e.g., 120000"
-                  {...register('min_salary')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="max_salary">Maximum Salary (USD)</Label>
-                <Input
-                  id="max_salary"
-                  type="number"
-                  placeholder="e.g., 200000"
-                  {...register('max_salary')}
-                />
-              </div>
+            <div className="space-y-2 max-w-xs">
+              <Label htmlFor="min_salary">Minimum Salary (USD)</Label>
+              <Input
+                id="min_salary"
+                type="number"
+                placeholder="e.g., 120000"
+                {...register('min_salary')}
+              />
             </div>
           </CardContent>
         </Card>
@@ -338,34 +321,21 @@ export default function NewSearchProfilePage() {
           <CardHeader>
             <CardTitle>Additional Filters</CardTitle>
             <CardDescription>
-              Specify companies to avoid and visa requirements
+              Specify companies to avoid
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="exclude_companies">Exclude Companies</Label>
+              <Label htmlFor="excluded_companies">Excluded Companies</Label>
               <Textarea
-                id="exclude_companies"
+                id="excluded_companies"
                 placeholder="e.g., Company A, Company B, Company C"
-                {...register('exclude_companies')}
+                {...register('excluded_companies')}
                 rows={3}
               />
               <p className="text-xs text-muted-foreground">
                 Jobs from these companies will be filtered out (comma-separated)
               </p>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="require_visa_sponsorship"
-                {...register('require_visa_sponsorship')}
-              />
-              <Label
-                htmlFor="require_visa_sponsorship"
-                className="text-sm font-normal cursor-pointer"
-              >
-                Require Visa Sponsorship
-              </Label>
             </div>
           </CardContent>
         </Card>

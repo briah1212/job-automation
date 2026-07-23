@@ -98,8 +98,10 @@ function QuestionItem({
       </div>
 
       {question.answer && (
-        <div className="text-xs text-muted-foreground">
-          {SOURCE_LABELS[question.answer.source] || question.answer.source}
+        <div className={`text-xs ${!question.answer.answer_text.trim() ? 'text-amber-700 font-medium' : 'text-muted-foreground'}`}>
+          {!question.answer.answer_text.trim()
+            ? "Needs your input - won't be auto-answered"
+            : SOURCE_LABELS[question.answer.source] || question.answer.source}
           {question.answer.approved && ' (approved)'}
         </div>
       )}

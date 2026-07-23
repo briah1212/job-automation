@@ -1,53 +1,93 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileText, CheckCircle, XCircle, Clock, Loader2 } from 'lucide-react'
+import { Upload, FileText, CheckCircle, Clock, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { apiClient } from '@/lib/api-client'
 import type { ResumeFamily, ResumeVersion } from '@/lib/types'
+
+const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
+  approved: 'default',
+  ready: 'default',
+  parsed: 'secondary',
+  tailoring: 'secondary',
+  parsing: 'outline',
+  draft: 'outline',
+  archived: 'outline',
+}
 
 export default function ResumesPage() {
   const [versions, setVersions] = useState<ResumeVersion[]>([])
   const [families, setFamilies] = useState<Record<string, ResumeFamily>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const fetchResumes = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const [versionsData, familiesData] = await Promise.all([
+        apiClient.getResumeVersions(),
+        apiClient.getResumes(),
+      ])
+      setVersions(versionsData)
+      setFamilies(
+        familiesData.reduce<Record<string, ResumeFamily>>((acc, family) => {
+          acc[family.id] = family
+          return acc
+        }, {})
+      )
+    } catch (err) {
+      setError('Failed to load resumes')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchResumes = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const [versionsData, familiesData] = await Promise.all([
-          apiClient.getResumeVersions(),
-          apiClient.getResumes(),
-        ])
-        setVersions(versionsData)
-        setFamilies(
-          familiesData.reduce<Record<string, ResumeFamily>>((acc, family) => {
-            acc[family.id] = family
-            return acc
-          }, {})
-        )
-      } catch (err) {
-        setError('Failed to load resumes')
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
     fetchResumes()
   }, [])
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      setUploading(true)
+      setError(null)
+      await apiClient.uploadResume(file)
+      await fetchResumes()
+    } catch (err) {
+      setError('Failed to upload resume')
+      console.error(err)
+    } finally {
+      setUploading(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Resumes</h1>
-        <Button>
-          <Upload className="mr-2 h-4 w-4" />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.doc,.docx"
+          className="hidden"
+          onChange={handleFileSelected}
+        />
+        <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+          {uploading ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="mr-2 h-4 w-4" />
+          )}
           Upload Resume
         </Button>
       </div>
@@ -85,24 +125,19 @@ export default function ResumesPage() {
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <FileText className="h-8 w-8 text-primary" />
-                    <Badge
-                      variant={
-                        version.status === 'approved_base'
-                          ? 'default'
-                          : version.status === 'needs_review'
-                          ? 'secondary'
-                          : 'outline'
-                      }
-                    >
-                      {version.status === 'approved_base' && (
+                    <Badge variant={STATUS_VARIANT[version.status] || 'outline'}>
+                      {(version.status === 'approved' || version.status === 'ready') && (
                         <CheckCircle className="mr-1 h-3 w-3" />
                       )}
-                      {version.status === 'needs_review' && <Clock className="mr-1 h-3 w-3" />}
-                      {version.status === 'uploaded' && <XCircle className="mr-1 h-3 w-3" />}
-                      {version.status.replace('_', ' ')}
+                      {(version.status === 'parsing' || version.status === 'tailoring') && (
+                        <Clock className="mr-1 h-3 w-3" />
+                      )}
+                      {version.status}
                     </Badge>
                   </div>
-                  <CardTitle className="mt-4">{family?.name || version.variant_type}</CardTitle>
+                  <CardTitle className="mt-4">
+                    {family?.name || (version.parent_id ? 'Tailored Variant' : 'Base Resume')}
+                  </CardTitle>
                   <CardDescription>{family?.target_category || 'Uncategorized'}</CardDescription>
                 </CardHeader>
                 <CardContent>

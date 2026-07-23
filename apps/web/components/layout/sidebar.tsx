@@ -3,22 +3,26 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { 
-  LayoutDashboard, 
-  User, 
+import {
+  LayoutDashboard,
+  User,
   Search,
-  FileText, 
-  Briefcase, 
-  Send 
+  FileText,
+  Briefcase,
+  Send,
+  Eye,
+  MessageSquareText,
 } from 'lucide-react'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Profile', href: '/dashboard/profile', icon: User },
   { name: 'Search Profiles', href: '/dashboard/search-profiles', icon: Search },
+  { name: 'Company Watches', href: '/dashboard/company-watches', icon: Eye },
   { name: 'Resumes', href: '/dashboard/resumes', icon: FileText },
   { name: 'Jobs', href: '/dashboard/jobs', icon: Briefcase },
   { name: 'Applications', href: '/dashboard/applications', icon: Send },
+  { name: 'Reusable Answers', href: '/dashboard/reusable-answers', icon: MessageSquareText },
 ]
 
 export function Sidebar() {

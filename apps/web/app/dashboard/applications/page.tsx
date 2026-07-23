@@ -10,12 +10,15 @@ import { AlertTriangle, CheckCircle, Loader2, FileText } from 'lucide-react'
 import { apiClient } from '@/lib/api-client'
 import type { Application, Job } from '@/lib/types'
 
-const STATUS_COLUMNS: Application['status'][] = [
-  'preparing',
-  'needs_review',
-  'ready',
-  'applied',
-  'interview',
+const STATUS_COLUMNS: Application['pipeline_status'][] = [
+  'not_started',
+  'draft',
+  'awaiting_review',
+  'approved',
+  'browser_running',
+  'paused',
+  'submitted',
+  'confirmed',
 ]
 
 function riskBadgeVariant(risk?: 'low' | 'medium' | 'high') {
@@ -60,7 +63,7 @@ export default function ApplicationsPage() {
   }, [])
 
   const groupedByStatus = STATUS_COLUMNS.reduce<Record<string, Application[]>>((acc, status) => {
-    acc[status] = applications.filter((a) => a.status === status)
+    acc[status] = applications.filter((a) => a.pipeline_status === status)
     return acc
   }, {})
 
@@ -121,13 +124,13 @@ export default function ApplicationsPage() {
         </TabsList>
 
         <TabsContent value="kanban" className="mt-6">
-          <div className="grid gap-4 md:grid-cols-5">
+          <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
             {STATUS_COLUMNS.map((status) => {
               const apps = groupedByStatus[status] || []
               return (
                 <div key={status}>
                   <div className="mb-4">
-                    <h3 className="font-medium capitalize">{status.replace('_', ' ')}</h3>
+                    <h3 className="font-medium capitalize">{status.replace(/_/g, ' ')}</h3>
                     <p className="text-sm text-muted-foreground">{apps.length} applications</p>
                   </div>
                   <div className="space-y-3">

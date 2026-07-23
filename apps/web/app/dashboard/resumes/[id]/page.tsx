@@ -89,8 +89,8 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
 
         if (found.family_id) {
           try {
-            const familyData = await apiClient.getResume(found.family_id)
-            setFamily(familyData)
+            const families = await apiClient.getResumes()
+            setFamily(families.find((f) => f.id === found.family_id) ?? null)
           } catch (err) {
             console.error('Failed to load resume family:', err)
           }
@@ -173,11 +173,11 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
   }
 
   const handleApprove = async () => {
-    if (!version) return
+    if (!version?.family_id) return
     try {
       setApproving(true)
-      await apiClient.approveResume(version.id)
-      setVersion({ ...version, status: 'approved_base' })
+      const updatedFamily = await apiClient.approveResume(version.family_id)
+      setFamily(updatedFamily)
     } catch (err) {
       console.error('Failed to approve resume:', err)
     } finally {
@@ -267,7 +267,8 @@ export default function ResumeDetailPage({ params }: { params: { id: string } })
         <div>
           <h1 className="text-3xl font-bold">{family?.name || 'Resume'}</h1>
           <p className="text-muted-foreground">
-            {family?.target_category || version.variant_type} • {version.status}
+            {family?.target_category || (version.parent_id ? 'Tailored Variant' : 'Base Resume')} •{' '}
+            {family?.status ?? version.status}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">

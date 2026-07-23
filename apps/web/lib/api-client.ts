@@ -1,6 +1,7 @@
-import { getSession } from 'next-auth/react'
+import { getSession, signOut } from 'next-auth/react'
 import type {
   Profile,
+  ProfileUpdate,
   Job,
   Application,
   ResumeFamily,
@@ -17,8 +18,17 @@ import type {
   DocumentLock,
   ApplicationQuestionWithAnswer,
   ReusableAnswer,
+  ReusableAnswerCreate,
+  ReusableAnswerUpdate,
   ApplicationReviewResult,
-  CoverLetter
+  ApplicationReviewRequest,
+  ApplicationApproveRequest,
+  CoverLetter,
+  BrowserStatus,
+  BrowserTaskResponse,
+  CompanyWatch,
+  CompanyWatchCreate,
+  CompanyWatchUpdate,
 } from './types'
 
 class APIClient {
@@ -53,7 +63,25 @@ class APIClient {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }))
       const err = new Error(error.detail || 'Request failed') as Error & { status?: number }
       err.status = response.status
+
+      // The session cookie can still look valid (NextAuth's own JWT hasn't
+      // expired) while the backend access token embedded in it has - that's
+      // a 401 the user can only resolve by logging in again, not something
+      // any page's own error state should try to explain.
+      if (response.status === 401 && typeof window !== 'undefined') {
+        signOut({ callbackUrl: '/auth/login' })
+      }
+
       throw err
+    }
+
+    if (response.status === 204) {
+      return undefined as T
+    }
+
+    const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('text/html')) {
+      return (await response.text()) as unknown as T
     }
 
     return response.json()
@@ -66,7 +94,7 @@ class APIClient {
   async post<T>(path: string, data?: any): Promise<T> {
     return this.request<T>(path, {
       method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
+      body: data !== undefined ? JSON.stringify(data) : undefined,
     })
   }
 
@@ -88,21 +116,17 @@ class APIClient {
     return this.request<T>(path, { method: 'DELETE' })
   }
 
-  // Auth
-  async login(email: string, password: string) {
-    return this.post('/api/auth/login', { email, password })
-  }
-
-  async register(email: string, password: string, name: string) {
-    return this.post('/api/auth/register', { email, password, name })
-  }
+  // Auth (registration goes directly through app/auth/register/page.tsx and
+  // login through NextAuth's CredentialsProvider in lib/auth.ts - neither
+  // uses this client, since both need the OAuth2PasswordRequestForm /
+  // form-urlencoded body shape the real backend requires).
 
   // Profile
   async getProfile() {
     return this.get<Profile>('/api/profile')
   }
 
-  async updateProfile(data: Partial<Profile>) {
+  async updateProfile(data: ProfileUpdate) {
     return this.put<Profile>('/api/profile', data)
   }
 
@@ -115,21 +139,16 @@ class APIClient {
     return this.get<ResumeVersion[]>('/api/resumes/versions')
   }
 
-  async getResume(id: string) {
-    return this.get<ResumeFamily>(`/api/resumes/${id}`)
-  }
-
-  async uploadResume(file: File, family: string) {
+  async uploadResume(file: File) {
     const formData = new FormData()
     formData.append('file', file)
-    formData.append('family', family)
 
     const session = await getSession()
     const authHeader: Record<string, string> = session?.accessToken
       ? { Authorization: `Bearer ${session.accessToken}` }
       : {}
 
-    const response = await fetch(`${this.baseURL}/api/resumes/upload`, {
+    const response = await fetch(`${this.baseURL}/api/resumes`, {
       method: 'POST',
       headers: authHeader,
       body: formData,
@@ -140,15 +159,11 @@ class APIClient {
       throw new Error('Upload failed')
     }
 
-    return response.json()
+    return response.json() as Promise<{ family: ResumeFamily; version: ResumeVersion }>
   }
 
   async approveResume(id: string) {
-    return this.post(`/api/resumes/${id}/approve`)
-  }
-
-  async generateVariant(baseId: string, jobId: string) {
-    return this.post(`/api/resumes/${baseId}/generate-variant`, { job_id: jobId })
+    return this.post<ResumeFamily>(`/api/resumes/${id}/approve`)
   }
 
   // Jobs
@@ -167,11 +182,11 @@ class APIClient {
   }
 
   async importJob(url: string) {
-    return this.post<Job>('/api/jobs/import', { url })
+    return this.post<Job>('/api/jobs/import-url', { url })
   }
 
-  async scoreJob(id: string) {
-    return this.post(`/api/jobs/${id}/score`)
+  async scoreJob(id: string, score?: number) {
+    return this.post<Job>(`/api/jobs/${id}/score`, { score })
   }
 
   // Applications
@@ -183,16 +198,19 @@ class APIClient {
     return this.get<Application>(`/api/applications/${id}`)
   }
 
-  async createApplication(jobId: string) {
-    return this.post<Application>('/api/applications', { job_id: jobId })
+  async createApplication(jobId: string, resumeVersionId?: string) {
+    return this.post<Application>('/api/applications', {
+      job_id: jobId,
+      resume_version_id: resumeVersionId,
+    })
   }
 
-  async approveApplication(id: string) {
-    return this.post(`/api/applications/${id}/approve`)
+  async reviewApplication(id: string, data: ApplicationReviewRequest) {
+    return this.post<Application>(`/api/applications/${id}/review`, data)
   }
 
-  async submitApplication(id: string) {
-    return this.post(`/api/applications/${id}/submit`)
+  async approveApplication(id: string, data: ApplicationApproveRequest = { approved: true }) {
+    return this.post<Application>(`/api/applications/${id}/approve`, data)
   }
 
   // Search Profiles
@@ -209,7 +227,7 @@ class APIClient {
   }
 
   async updateSearchProfile(id: string, data: SearchProfileUpdate) {
-    return this.put<SearchProfile>(`/api/search-profiles/${id}`, data)
+    return this.patch<SearchProfile>(`/api/search-profiles/${id}`, data)
   }
 
   async deleteSearchProfile(id: string) {
@@ -217,7 +235,7 @@ class APIClient {
   }
 
   async toggleSearchProfile(id: string, enabled: boolean) {
-    return this.put<SearchProfile>(`/api/search-profiles/${id}`, { enabled })
+    return this.patch<SearchProfile>(`/api/search-profiles/${id}`, { enabled })
   }
 
   // Matching
@@ -231,10 +249,6 @@ class APIClient {
 
   async selectResume(jobId: string) {
     return this.post<ResumeSelectionResult>(`/api/jobs/${jobId}/select-resume`, {})
-  }
-
-  async getResumeSelection(jobId: string) {
-    return this.get<ResumeSelectionResult>(`/api/jobs/${jobId}/resume-selection`)
   }
 
   // Resume Tailoring
@@ -259,8 +273,10 @@ class APIClient {
   }
 
   // Application Q&A
-  async generateApplicationQA(applicationId: string) {
-    return this.post<ApplicationQuestionWithAnswer[]>(`/api/applications/${applicationId}/generate`)
+  async generateApplicationQA(applicationId: string, questionTexts?: string[]) {
+    return this.post<ApplicationQuestionWithAnswer[]>(`/api/applications/${applicationId}/generate`, {
+      question_texts: questionTexts,
+    })
   }
 
   async getApplicationQuestions(applicationId: string) {
@@ -272,12 +288,20 @@ class APIClient {
   }
 
   // Reusable Answers
-  async createReusableAnswer(data: { canonical_question: string; semantic_variants?: string[]; exact_answer: string; allowed_paraphrasing?: boolean; risk_level: string; categories?: string[] }) {
-    return this.post<ReusableAnswer>('/api/answers', data)
+  async getReusableAnswers() {
+    return this.get<ReusableAnswer[]>('/api/reusable-answers')
   }
 
-  async approveReusableAnswer(answerId: string) {
-    return this.post<ReusableAnswer>(`/api/answers/${answerId}/approve`)
+  async createReusableAnswer(data: ReusableAnswerCreate) {
+    return this.post<ReusableAnswer>('/api/reusable-answers', data)
+  }
+
+  async updateReusableAnswer(id: string, data: ReusableAnswerUpdate) {
+    return this.patch<ReusableAnswer>(`/api/reusable-answers/${id}`, data)
+  }
+
+  async deleteReusableAnswer(id: string) {
+    return this.delete(`/api/reusable-answers/${id}`)
   }
 
   // Application Review
@@ -300,6 +324,59 @@ class APIClient {
 
   async updateCoverLetter(applicationId: string, content: string) {
     return this.patch<CoverLetter>(`/api/applications/${applicationId}/cover-letter`, { content })
+  }
+
+  // Browser Automation
+  async startBrowserAutomation(applicationId: string) {
+    return this.post<BrowserTaskResponse>(`/api/applications/${applicationId}/start-browser`)
+  }
+
+  async getBrowserStatus(applicationId: string) {
+    return this.get<BrowserStatus>(`/api/applications/${applicationId}/browser-status`)
+  }
+
+  async approveSubmit(applicationId: string) {
+    return this.post<BrowserTaskResponse>(`/api/applications/${applicationId}/approve-submit`)
+  }
+
+  async resumeManualIntervention(applicationId: string) {
+    return this.post<BrowserTaskResponse>(`/api/applications/${applicationId}/resume-manual-intervention`)
+  }
+
+  async answerPendingQuestion(applicationId: string, answerText: string) {
+    return this.post<BrowserTaskResponse>(`/api/applications/${applicationId}/answer-pending-question`, {
+      answer_text: answerText,
+    })
+  }
+
+  async cancelBrowserAutomation(applicationId: string) {
+    return this.post<{ id: string; status: string }>(`/api/applications/${applicationId}/cancel-browser`)
+  }
+
+  // The replay endpoint requires the same Bearer auth as everything else, so
+  // a plain <a href> can't hit it directly - fetch the HTML and hand callers
+  // a blob: URL they can window.open() instead.
+  async getReplayReportUrl(applicationId: string) {
+    const html = await this.get<string>(`/api/applications/${applicationId}/replay`)
+    const blob = new Blob([html], { type: 'text/html' })
+    return URL.createObjectURL(blob)
+  }
+
+  // Company Watches
+  async getCompanyWatches() {
+    return this.get<CompanyWatch[]>('/api/company-watches')
+  }
+
+  async createCompanyWatch(data: CompanyWatchCreate) {
+    return this.post<CompanyWatch>('/api/company-watches', data)
+  }
+
+  async updateCompanyWatch(id: string, data: CompanyWatchUpdate) {
+    return this.patch<CompanyWatch>(`/api/company-watches/${id}`, data)
+  }
+
+  async deleteCompanyWatch(id: string) {
+    return this.delete(`/api/company-watches/${id}`)
   }
 }
 

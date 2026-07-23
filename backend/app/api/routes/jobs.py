@@ -242,20 +242,34 @@ def select_best_resume(
             # Get most recent
             latest = max(ready_versions, key=lambda v: v.created_at)
             resumes.append(latest)
-    
+
+    if not resumes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No approved resumes available yet - upload and approve a resume first",
+        )
+
     # Run resume selection agent
     agent = ResumeSelectionAgent()
     result = agent.select_resume(job, resumes, profile)
-    
+
     # Update match score with selected resume
     match_score = db.query(JobMatchScore).filter(
         JobMatchScore.job_id == job_id,
         JobMatchScore.user_id == current_user.id
     ).first()
-    
+
     if match_score and result.get("selected_resume_id"):
         match_score.matched_resume_id = result["selected_resume_id"]
         match_score.resume_selection_rationale = result["selection_rationale"]
         db.commit()
-    
-    return ResumeSelectionResult(**result)
+
+    return ResumeSelectionResult(
+        job_id=job_id,
+        recommended_resume_id=result["selected_resume_id"],
+        match_score=result["match_score"],
+        reasoning=result["selection_rationale"],
+        strengths=result["strengths"],
+        weaknesses=result["weaknesses"],
+        customization_suggestions=result["customization_suggestions"],
+    )

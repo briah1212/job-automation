@@ -1,9 +1,13 @@
-import { JobMatchScore } from '@/lib/types'
+import { JobMatchScore, MatchSignal } from '@/lib/types'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 
 interface MatchAnalysisProps {
   matchScore: JobMatchScore
+}
+
+function signalText(signal: MatchSignal): string {
+  return signal.reason || signal.detail || signal.impact || signal.type || signal.field || JSON.stringify(signal)
 }
 
 interface DimensionScore {
@@ -29,12 +33,12 @@ export function MatchAnalysis({ matchScore }: MatchAnalysisProps) {
 
   const getActionBadgeVariant = (action: string) => {
     switch (action) {
-      case 'apply':
+      case 'priority':
         return 'default'
-      case 'pass':
+      case 'reject':
         return 'destructive'
-      case 'maybe':
-      case 'needs_tailoring':
+      case 'prepare_application':
+      case 'save_for_later':
         return 'secondary'
       default:
         return 'outline'
@@ -95,7 +99,7 @@ export function MatchAnalysis({ matchScore }: MatchAnalysisProps) {
                   key={index}
                   className="bg-red-100 text-red-800 border-red-300 hover:bg-red-100"
                 >
-                  {blocker}
+                  {signalText(blocker)}
                 </Badge>
               ))}
             </div>
@@ -112,7 +116,7 @@ export function MatchAnalysis({ matchScore }: MatchAnalysisProps) {
                   key={index}
                   className="bg-green-100 text-green-800 border-green-300 hover:bg-green-100"
                 >
-                  {match}
+                  {signalText(match)}
                 </Badge>
               ))}
             </div>
@@ -129,7 +133,7 @@ export function MatchAnalysis({ matchScore }: MatchAnalysisProps) {
                   key={index}
                   className="bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-100"
                 >
-                  {gap}
+                  {signalText(gap)}
                 </Badge>
               ))}
             </div>
@@ -146,7 +150,7 @@ export function MatchAnalysis({ matchScore }: MatchAnalysisProps) {
                   key={index}
                   className="bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-100"
                 >
-                  {info}
+                  {signalText(info)}
                 </Badge>
               ))}
             </div>
@@ -167,7 +171,7 @@ export function MatchAnalysis({ matchScore }: MatchAnalysisProps) {
         <div className="flex items-center justify-between border-t pt-4">
           <span className="text-sm font-semibold text-muted-foreground">Recommended Action</span>
           <Badge variant={getActionBadgeVariant(matchScore.recommended_action)}>
-            {matchScore.recommended_action.replace('_', ' ').toUpperCase()}
+            {matchScore.recommended_action.replace(/_/g, ' ').toUpperCase()}
           </Badge>
         </div>
       </CardContent>

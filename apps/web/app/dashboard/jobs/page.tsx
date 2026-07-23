@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Search, Filter, X, CheckCircle2, ChevronDown } from 'lucide-react'
+import { Plus, Search, Filter, X, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { apiClient, Job } from '@/lib/api-client'
 import {
@@ -19,6 +19,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 // Available filter options
 const CATEGORIES = [
@@ -41,11 +49,16 @@ const REMOTE_POLICIES = [
 ]
 
 const JOB_STATUSES = [
-  { value: 'new', label: 'New' },
-  { value: 'analyzing', label: 'Analyzing' },
+  { value: 'discovered', label: 'Discovered' },
+  { value: 'extracting', label: 'Extracting' },
   { value: 'scored', label: 'Scored' },
-  { value: 'blocked', label: 'Blocked' },
-  { value: 'ready', label: 'Ready' },
+  { value: 'saved', label: 'Saved' },
+  { value: 'shortlisted', label: 'Shortlisted' },
+  { value: 'preparing', label: 'Preparing' },
+  { value: 'ready_for_review', label: 'Ready for Review' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected_by_rule', label: 'Rejected' },
+  { value: 'archived', label: 'Archived' },
 ]
 
 type SortOption = 'score' | 'date' | 'salary'
@@ -66,7 +79,12 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true)
   const [showFilters, setShowFilters] = useState(true)
   const [sortBy, setSortBy] = useState<SortOption>('score')
-  
+
+  const [importOpen, setImportOpen] = useState(false)
+  const [importUrl, setImportUrl] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+
   const [filters, setFilters] = useState<Filters>({
     categories: [],
     scoreRange: [0, 100],
@@ -77,29 +95,47 @@ export default function JobsPage() {
     search: '',
   })
 
+  const fetchJobs = async () => {
+    setLoading(true)
+    try {
+      const jobFilters: any = {}
+      if (filters.search) jobFilters.search = filters.search
+      if (filters.categories.length > 0) jobFilters.category = filters.categories.join(',')
+      if (filters.scoreRange[0] > 0) jobFilters.min_score = filters.scoreRange[0]
+      if (filters.scoreRange[1] < 100) jobFilters.max_score = filters.scoreRange[1]
+      if (filters.statuses.length > 0) jobFilters.status = filters.statuses.join(',')
+
+      const data = await apiClient.getJobs(jobFilters)
+      setJobs(data)
+    } catch (error) {
+      console.error('Failed to fetch jobs:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // Fetch jobs with filters
   useEffect(() => {
-    const fetchJobs = async () => {
-      setLoading(true)
-      try {
-        const jobFilters: any = {}
-        if (filters.search) jobFilters.search = filters.search
-        if (filters.categories.length > 0) jobFilters.category = filters.categories.join(',')
-        if (filters.scoreRange[0] > 0) jobFilters.min_score = filters.scoreRange[0]
-        if (filters.scoreRange[1] < 100) jobFilters.max_score = filters.scoreRange[1]
-        if (filters.statuses.length > 0) jobFilters.status = filters.statuses.join(',')
-        
-        const data = await apiClient.getJobs(jobFilters)
-        setJobs(data)
-      } catch (error) {
-        console.error('Failed to fetch jobs:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
     fetchJobs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters])
+
+  const handleImport = async () => {
+    if (!importUrl.trim()) return
+    try {
+      setImporting(true)
+      setImportError(null)
+      await apiClient.importJob(importUrl.trim())
+      setImportUrl('')
+      setImportOpen(false)
+      await fetchJobs()
+    } catch (err) {
+      setImportError((err as Error).message || 'Failed to import job')
+      console.error(err)
+    } finally {
+      setImporting(false)
+    }
+  }
 
   // Filter jobs locally for criteria not supported by API
   const filteredJobs = jobs.filter((job) => {
@@ -116,10 +152,10 @@ export default function JobsPage() {
     }
     
     // Salary range filter
-    if (job.salary_min !== undefined && job.salary_min < filters.salaryRange[0]) {
+    if (job.salary_min != null && job.salary_min < filters.salaryRange[0]) {
       return false
     }
-    if (job.salary_max !== undefined && job.salary_max > filters.salaryRange[1]) {
+    if (job.salary_max != null && job.salary_max > filters.salaryRange[1]) {
       return false
     }
     
@@ -210,11 +246,37 @@ export default function JobsPage() {
             {sortedJobs.length} job{sortedJobs.length !== 1 ? 's' : ''} found
           </p>
         </div>
-        <Button>
+        <Button onClick={() => setImportOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Import Job URL
         </Button>
       </div>
+
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import Job from URL</DialogTitle>
+            <DialogDescription>
+              Paste a job posting URL. It will be extracted and classified in the background.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="https://boards.greenhouse.io/acme/jobs/12345"
+            value={importUrl}
+            onChange={(e) => setImportUrl(e.target.value)}
+          />
+          {importError && <p className="text-sm text-red-600">{importError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportOpen(false)} disabled={importing}>
+              Cancel
+            </Button>
+            <Button onClick={handleImport} disabled={importing || !importUrl.trim()}>
+              {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Search and Controls */}
       <Card className="p-4">
@@ -420,19 +482,11 @@ export default function JobsPage() {
               <TableBody>
                 {sortedJobs.map((job) => {
                   const scoreBadge = job.score ? getScoreBadgeVariant(job.score) : null
-                  const hasMatchedResume = job.match_analysis?.recommended_resume_family
-                  
+
                   return (
                     <TableRow key={job.id}>
                       <TableCell className="font-medium">{job.company}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {job.title}
-                          {hasMatchedResume && (
-                            <CheckCircle2 className="h-4 w-4 text-green-600" />
-                          )}
-                        </div>
-                      </TableCell>
+                      <TableCell>{job.title}</TableCell>
                       <TableCell>
                         <div className="space-y-1">
                           <div className="text-sm">{job.location || 'Not specified'}</div>
@@ -472,24 +526,19 @@ export default function JobsPage() {
                               {(job.salary_max / 1000).toFixed(0)}k
                             </div>
                           )}
-                          {job.match_analysis?.recommended_resume_family && (
-                            <Badge variant="secondary" className="text-xs">
-                              {job.match_analysis.recommended_resume_family}
-                            </Badge>
-                          )}
                         </div>
                       </TableCell>
                       <TableCell>
                         <Badge
                           variant={
-                            job.status === 'ready'
+                            job.status === 'approved'
                               ? 'default'
-                              : job.status === 'blocked'
+                              : job.status === 'rejected_by_rule'
                               ? 'destructive'
                               : 'outline'
                           }
                         >
-                          {job.status}
+                          {job.status.replace(/_/g, ' ')}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">

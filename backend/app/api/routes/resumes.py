@@ -128,8 +128,17 @@ def approve_resume(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Resume not found"
         )
-    
+
     family.status = ResumeStatus.approved
+
+    # Approving a family is what makes it eligible for resume selection
+    # (select_best_resume in jobs.py filters on ResumeVersion.status), so the
+    # latest version must transition too - otherwise "approve" would be a
+    # no-op that leaves the resume permanently invisible to that endpoint.
+    if family.versions:
+        latest_version = max(family.versions, key=lambda v: v.created_at)
+        latest_version.status = ResumeStatus.approved
+
     db.commit()
     db.refresh(family)
     return family

@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { CheckCircle, Briefcase, FileText, Loader2, Sparkles } from 'lucide-react'
+import { Briefcase, FileText, Loader2, Sparkles } from 'lucide-react'
 import { QuestionList } from '@/components/applications/question-list'
 import { ReviewFindings } from '@/components/applications/review-findings'
 import { CoverLetterCard } from '@/components/applications/cover-letter-card'
+import { BrowserAutomationPanel } from '@/components/applications/browser-automation-panel'
 import { apiClient } from '@/lib/api-client'
 import type {
   Application,
@@ -31,7 +32,6 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
 
   const [generatingQuestions, setGeneratingQuestions] = useState(false)
   const [runningReview, setRunningReview] = useState(false)
-  const [approving, setApproving] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
 
@@ -161,22 +161,6 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
     }
   }
 
-  const handleApproveAndSubmit = async () => {
-    try {
-      setApproving(true)
-      setError(null)
-      await apiClient.approveApplication(params.id)
-      await apiClient.submitApplication(params.id)
-      const updated = await apiClient.getApplication(params.id)
-      setApplication(updated)
-    } catch (err) {
-      setError('Failed to approve and submit application')
-      console.error(err)
-    } finally {
-      setApproving(false)
-    }
-  }
-
   const selectedResume = application?.resume_version_id
     ? resumes.find((r) => r.id === application.resume_version_id)
     : undefined
@@ -221,23 +205,11 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
         </Card>
       )}
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Application Review</h1>
-          <p className="text-muted-foreground">
-            {job ? `${job.company} - ${job.title}` : 'Loading job details...'}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={handleApproveAndSubmit} disabled={approving}>
-            {approving ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle className="mr-2 h-4 w-4" />
-            )}
-            Approve & Submit
-          </Button>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold">Application Review</h1>
+        <p className="text-muted-foreground">
+          {job ? `${job.company} - ${job.title}` : 'Loading job details...'}
+        </p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
@@ -256,7 +228,7 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
                     <span>{job.title}</span>
                   </div>
                   <div className="flex gap-2">
-                    {job.score !== undefined && <Badge>{job.score}% Match</Badge>}
+                    {job.score != null && <Badge>{job.score}% Match</Badge>}
                     {job.location && <Badge variant="outline">{job.location}</Badge>}
                   </div>
                 </>
@@ -328,6 +300,8 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
             <ReviewFindings review={review} onRunReview={handleRunReview} running={runningReview} />
           )}
 
+          <BrowserAutomationPanel applicationId={params.id} />
+
           <Card>
             <CardHeader>
               <CardTitle>Selected Resume</CardTitle>
@@ -342,7 +316,7 @@ export default function ApplicationDetailPage({ params }: { params: { id: string
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4" />
                     <span className="text-sm font-medium">
-                      {selectedResume.variant_type === 'tailored' ? 'Tailored Variant' : 'Base Resume'}
+                      {selectedResume.parent_id ? 'Tailored Variant' : 'Base Resume'} (v{selectedResume.version})
                     </span>
                   </div>
                   <Badge variant="outline" className="text-xs">

@@ -83,14 +83,47 @@ class ResumeSelectionAgent(BaseAgent):
             }
             for s in scores[1:3]  # Top 2 alternatives
         ]
-        
+
         return {
             "selected_resume_id": best["resume"].id,
             "selection_rationale": rationale,
             "alternatives": alternatives,
             "missing_coverage": missing,
             "tailoring_recommended": tailor,
+            # Additive fields matching app.schemas.job_match.ResumeSelectionResult -
+            # kept alongside the fields above (not replacing them) so this dict
+            # still satisfies the assertions in tests/test_resume_selection.py.
+            "match_score": best["total_score"],
+            "strengths": self._summarize_strengths(best),
+            "weaknesses": self._summarize_weaknesses(best),
+            "customization_suggestions": [f"Add or highlight experience with {skill}" for skill in missing],
         }
+
+    def _summarize_strengths(self, best: Dict) -> List[str]:
+        """Plain-language strengths backing a selection, for ResumeSelectionResult.strengths."""
+        strengths = []
+        if best["coverage"] >= 0.8:
+            strengths.append("Excellent coverage of required skills")
+        elif best["coverage"] >= 0.6:
+            strengths.append("Good coverage of required skills")
+        if best["relevance"] >= 0.8:
+            strengths.append("Highly relevant to job domain")
+        if best["recency"] >= 0.9:
+            strengths.append("Recently updated")
+        if best["performance"] >= 0.7:
+            strengths.append("Strong track record in past applications")
+        return strengths
+
+    def _summarize_weaknesses(self, best: Dict) -> List[str]:
+        """Plain-language weaknesses backing a selection, for ResumeSelectionResult.weaknesses."""
+        weaknesses = []
+        if best["coverage"] < 0.6:
+            weaknesses.append("Moderate to low skill coverage - consider tailoring")
+        if best["relevance"] < 0.6:
+            weaknesses.append("Limited relevance to this job's domain")
+        if best["recency"] < 0.7:
+            weaknesses.append("Resume has not been updated recently")
+        return weaknesses
     
     def _calculate_coverage(self, resume: ResumeVersion, job: CanonicalJob) -> float:
         """Calculate how well resume covers job requirements (0-1)."""

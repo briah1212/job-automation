@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ExternalLink, Send, MapPin, DollarSign, Briefcase, ChevronDown, ChevronUp, RefreshCw, Bookmark, X, Loader2 } from 'lucide-react'
+import { ExternalLink, Send, MapPin, DollarSign, Briefcase, ChevronDown, ChevronUp, RefreshCw, Loader2, Sparkles } from 'lucide-react'
 import { MatchAnalysis } from '@/components/jobs/match-analysis'
 import { ResumeRecommendation } from '@/components/jobs/resume-recommendation'
 import { apiClient } from '@/lib/api-client'
@@ -24,9 +24,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [loadingMatch, setLoadingMatch] = useState(true)
   const [loadingResumes, setLoadingResumes] = useState(true)
   const [recalculating, setRecalculating] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [rejecting, setRejecting] = useState(false)
-  
+  const [selectingResume, setSelectingResume] = useState(false)
+
   const [error, setError] = useState<string | null>(null)
   const [descriptionExpanded, setDescriptionExpanded] = useState(true)
 
@@ -66,27 +65,36 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     fetchMatchScore()
   }, [params.id])
 
-  // Fetch resume selection and resumes
+  // Fetch resume versions (resume selection is computed on demand, not persisted for retrieval)
   useEffect(() => {
-    const fetchResumesData = async () => {
+    const fetchResumes = async () => {
       try {
         setLoadingResumes(true)
-        const [selectionData, resumesData] = await Promise.all([
-          apiClient.getResumeSelection(params.id),
-          apiClient.getResumeVersions()
-        ])
-        setResumeSelection(selectionData)
+        const resumesData = await apiClient.getResumeVersions()
         setResumes(resumesData)
       } catch (err) {
-        console.error('Failed to load resume data:', err)
-        // Don't set error, selection might not exist yet
+        console.error('Failed to load resumes:', err)
       } finally {
         setLoadingResumes(false)
       }
     }
 
-    fetchResumesData()
+    fetchResumes()
   }, [params.id])
+
+  const handleSelectResume = async () => {
+    try {
+      setSelectingResume(true)
+      setError(null)
+      const selection = await apiClient.selectResume(params.id)
+      setResumeSelection(selection)
+    } catch (err) {
+      setError('Failed to select a resume for this job')
+      console.error(err)
+    } finally {
+      setSelectingResume(false)
+    }
+  }
 
   // Action handlers
   const handleRecalculateMatch = async () => {
@@ -103,39 +111,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
   }
 
-  const handleSaveForLater = async () => {
-    try {
-      setSaving(true)
-      setError(null)
-      // TODO: Implement save for later API call
-      await new Promise(resolve => setTimeout(resolve, 500)) // Placeholder
-      alert('Job saved for later!')
-    } catch (err) {
-      setError('Failed to save job')
-      console.error(err)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleReject = async () => {
-    try {
-      setRejecting(true)
-      setError(null)
-      // TODO: Implement reject API call
-      await new Promise(resolve => setTimeout(resolve, 500)) // Placeholder
-      alert('Job rejected')
-      router.push('/dashboard/jobs')
-    } catch (err) {
-      setError('Failed to reject job')
-      console.error(err)
-    } finally {
-      setRejecting(false)
-    }
-  }
-
   const handlePrepareApplication = () => {
-    router.push(`/dashboard/applications/prepare?jobId=${params.id}`)
+    const resumeParam = resumeSelection?.recommended_resume_id
+      ? `&resumeVersionId=${resumeSelection.recommended_resume_id}`
+      : ''
+    router.push(`/dashboard/applications/prepare?jobId=${params.id}${resumeParam}`)
   }
 
   const handleViewResume = (resumeId: string) => {
@@ -188,34 +168,40 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* Header Section */}
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <h1 className="text-3xl font-bold">{job.title || 'Senior Software Engineer'}</h1>
+          <h1 className="text-3xl font-bold">
+            {job.title || (job.status === 'extracting' ? 'Extracting job details...' : 'Untitled')}
+          </h1>
           <div className="flex items-center gap-4 mt-2 text-muted-foreground">
             <div className="flex items-center gap-1">
               <Briefcase className="h-4 w-4" />
-              {job.company || 'Google'}
+              {job.company || 'Unknown company'}
             </div>
-            <div className="flex items-center gap-1">
-              <MapPin className="h-4 w-4" />
-              {job.location || 'Mountain View, CA'}
-            </div>
-            {job.salary_range && (
+            {job.location && (
+              <div className="flex items-center gap-1">
+                <MapPin className="h-4 w-4" />
+                {job.location}
+              </div>
+            )}
+            {job.salary_min && job.salary_max && (
               <div className="flex items-center gap-1">
                 <DollarSign className="h-4 w-4" />
-                {job.salary_range}
+                ${(job.salary_min / 1000).toFixed(0)}k - ${(job.salary_max / 1000).toFixed(0)}k
               </div>
             )}
           </div>
         </div>
-        
+
         {/* Primary Actions */}
-        <div className="flex gap-2">
-          <Button variant="outline" asChild>
-            <a href={job.url || '#'} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="mr-2 h-4 w-4" />
-              View Original
-            </a>
-          </Button>
-        </div>
+        {typeof job.extracted_data?.url === 'string' && (
+          <div className="flex gap-2">
+            <Button variant="outline" asChild>
+              <a href={job.extracted_data.url} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="mr-2 h-4 w-4" />
+                View Original
+              </a>
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Enhanced Action Buttons Row */}
@@ -232,34 +218,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           )}
           Re-calculate Match
         </Button>
-        
-        <Button
-          variant="outline"
-          onClick={handleSaveForLater}
-          disabled={saving}
-        >
-          {saving ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Bookmark className="mr-2 h-4 w-4" />
-          )}
-          Save for Later
-        </Button>
-        
-        <Button
-          variant="outline"
-          onClick={handleReject}
-          disabled={rejecting}
-          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-        >
-          {rejecting ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <X className="mr-2 h-4 w-4" />
-          )}
-          Reject
-        </Button>
-        
+
         <div className="flex-1" />
         
         <Button
@@ -295,32 +254,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
             </CardHeader>
             {descriptionExpanded && (
-              <CardContent className="space-y-4">
-                <div>
-                  <h3 className="font-medium mb-2">About the Role</h3>
+              <CardContent>
+                {job.description ? (
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{job.description}</p>
+                ) : (
                   <p className="text-sm text-muted-foreground">
-                    {job.description || `We're looking for a Senior Software Engineer to join our Search Infrastructure team.
-                    You'll be working on building and scaling systems that power Google Search, serving
-                    billions of queries daily.`}
+                    {job.status === 'extracting'
+                      ? 'Still extracting the job description...'
+                      : 'No description available for this job.'}
                   </p>
-                </div>
-                <div>
-                  <h3 className="font-medium mb-2">Requirements</h3>
-                  <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
-                    <li>5+ years of software development experience</li>
-                    <li>Strong understanding of distributed systems</li>
-                    <li>Experience with large-scale backend systems</li>
-                    <li>Proficiency in C++, Java, or Python</li>
-                  </ul>
-                </div>
-                <div>
-                  <h3 className="font-medium mb-2">Nice to Have</h3>
-                  <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
-                    <li>Experience with search or information retrieval</li>
-                    <li>Knowledge of machine learning systems</li>
-                    <li>Open source contributions</li>
-                  </ul>
-                </div>
+                )}
               </CardContent>
             )}
           </Card>
@@ -385,10 +328,27 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <CardTitle>Resume Recommendation</CardTitle>
                 <CardDescription>No resume selected yet</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Calculate a match score first to get resume recommendations.
+                  {resumes.length === 0
+                    ? 'Upload a resume first, then select the best match for this job.'
+                    : 'Pick the best resume on file for this job.'}
                 </p>
+                <Button onClick={handleSelectResume} disabled={selectingResume || resumes.length === 0}>
+                  {selectingResume ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  Select Best Resume
+                </Button>
+                {resumes.length > 0 && (
+                  <div>
+                    <Button variant="ghost" size="sm" onClick={handlePrepareApplication}>
+                      Or prepare application without a recommendation
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
