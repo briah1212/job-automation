@@ -159,9 +159,11 @@ services:
       HEADLESS: ${HEADLESS:-true}
       # Unset by default: BrowserWorker launches a fresh local throwaway
       # browser per run, exactly as before this existed. Set to a
-      # privately-tunneled ws:// CDP endpoint (never a bare public
+      # privately-reachable CDP http:// base (never a bare public
       # host:port) to instead drive a persistent, already-authenticated
-      # remote Chrome instance - see BrowserWorker._acquire_browser_and_context.
+      # remote Chrome instance - see BrowserWorker._acquire_browser_and_context
+      # and BROWSER_CDP_URL's comment in .env.example for why http:// (not a
+      # hardcoded ws://.../devtools/browser/<uuid>) is the form to use.
       BROWSER_CDP_URL: ${BROWSER_CDP_URL:-}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env - see .env.example}
       MINIO_ENDPOINT: minio:9000
@@ -169,6 +171,12 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BROWSER_BUCKET: ${MINIO_BROWSER_BUCKET:-browser-artifacts}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set in .env - see .env.example}
+    # Lets BROWSER_CDP_URL use host.docker.internal to reach a Chrome
+    # instance running directly on the host (e.g. Hermes's systemd-managed
+    # Chrome) - Docker for Mac/Windows already resolves this automatically,
+    # this extra_hosts entry is what makes it resolve on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./apps/browser-worker:/app
       - ./backend:/backend:ro

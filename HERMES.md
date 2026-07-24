@@ -8,12 +8,38 @@ browser. Dense index, not a tutorial - follow the links.
 
 - Done: `BrowserWorker` can connect to a remote Chrome over CDP and reuse its
   existing (logged-in) context. Verified against a real local Chromium
-  standing in for Hermes; not yet verified against the actual Hermes VPS.
-- Blocked on: nothing in this repo talks to Hermes yet - no tunnel script, no
-  systemd/supervisor config, no documented port. Not just undocumented; not built.
-  See "Open questions" below.
+  standing in for Hermes; not yet verified against the actual Hermes VPS
+  (this dev machine is on Hermes's Tailscale network but can't reach port
+  9222 directly - confirmed live, see "Hermes facts" - which is correct:
+  CDP is bound to localhost-only on Hermes, not its Tailscale interface).
 - Not started: credential-vault auth model change, agent-driven manual-intervention
   pause points (see "Not yet done" below).
+
+## Hermes facts (confirmed by Brian/Hermes directly, 2026-07-24)
+
+- Host: `bhserver.tail45bdcf.ts.net` / `100.69.100.69` (Tailscale). CDP on port
+  9222, bound to localhost only - not reachable over the tailnet, by design.
+- Chrome runs as a systemd **user** service (`hermes-chrome`) on Xvfb display
+  `:99`, auto-restarts on crash/boot, flags:
+  `--remote-debugging-port=9222 --remote-allow-origins=* --user-data-dir=/home/hermes/.hermes/chrome-profile --no-sandbox`.
+- browser-worker is expected to run **on Hermes itself** (same VPS as Chrome) -
+  no network tunnel needed. Everything on Hermes today runs as systemd user
+  services, not docker-compose; if browser-worker is deployed there via this
+  repo's docker-compose flow instead, reach Chrome via `host.docker.internal:9222`
+  (wired in `docker-compose.yml`'s browser-worker service - see below). Which of
+  the two (bare systemd vs. dockerized) Hermes deployment actually uses is still
+  an open call - the code works either way.
+- The CDP websocket URL (`ws://.../devtools/browser/<uuid>`) changes every Chrome
+  restart. Confirmed live (see `worker.py`'s CDP tests + a manual restart
+  reproduction) that pointing `connect_over_cdp` at the plain `http://host:port`
+  base instead avoids this entirely - Playwright re-resolves the current
+  websocket endpoint on every connection. **Always use the http:// form, never
+  a hardcoded ws://.../devtools/browser/<uuid>.**
+- No mechanism answers a manual-intervention pause yet. Leading option (not
+  built): a cron job on Hermes polling `browser-status` and alerting over
+  Telegram, with a human resolving it via SSH/VNC - simpler than a live
+  standing agent for what should be a rare event. Not implemented in this repo
+  or on Hermes; still a decision, not a fact.
 
 ## Run it
 
@@ -24,10 +50,15 @@ browser. Dense index, not a tutorial - follow the links.
   Postgres/Redis/MinIO/API/job-worker/browser-worker/web/mock-ats via `docker-compose.yml`.
 - To point browser-worker at Hermes's persistent Chrome instead of a local
   throwaway one: set `BROWSER_CDP_URL` in `.env` (documented at
-  [`.env.example:99-106`](./.env.example)) to a **privately-tunneled** `ws://` URL -
-  never a bare public `host:port`, the CDP port grants full control of a browser
-  logged into real accounts. Wired through
-  [`docker-compose.yml:165`](./docker-compose.yml) →
+  [`.env.example:99-114`](./.env.example)) to the plain `http://` base, e.g.
+  `http://localhost:9222` (bare-metal on Hermes) or `http://host.docker.internal:9222`
+  (browser-worker dockerized on the same host) - never a hardcoded
+  `ws://.../devtools/browser/<uuid>` (goes stale on every Chrome restart) and
+  never a bare public `host:port` (the CDP port grants full control of a
+  browser logged into real accounts). Wired through
+  [`docker-compose.yml:167`](./docker-compose.yml#L167) (the env var) and
+  [`docker-compose.yml:174-179`](./docker-compose.yml#L174-L179)
+  (`host.docker.internal` host-gateway mapping) →
   [`queue_worker.py:237-238`](./apps/browser-worker/browser_worker/queue_worker.py#L237-L238) →
   `BrowserWorker(cdp_url=...)`.
 - Tests: `docker compose exec -e AI_PROVIDER=mock api python -m pytest -q` (backend),
@@ -87,9 +118,11 @@ The pause/resume API a future agent would call instead of a human:
   for a human to answer through [`browser_automation.py`](./backend/app/api/routes/browser_automation.py)
   above. No mechanism (polling loop, webhook, or otherwise) yet lets an agent answer
   these on Hermes instead - not even a design sketch exists.
-- Network security for the CDP port is entirely an infra-side concern (SSH tunnel
-  or private network on Hermes itself) - nothing in this repo enforces or implements
-  it beyond the `.env.example` warning.
+- Network security for the CDP port: resolved as a non-issue for the current
+  same-host topology (Chrome bound to localhost-only, browser-worker runs on
+  the same VPS - see "Hermes facts") rather than something built. If that
+  topology ever changes (browser-worker moves off Hermes), the port must not
+  be exposed beyond a private tunnel - nothing in this repo would enforce that.
 - CI ([`.github/workflows/browser-worker-tests.yml`](./.github/workflows/browser-worker-tests.yml))
   never sets `BROWSER_CDP_URL` - the CDP path has zero automated coverage beyond
   manually running `test_worker_cdp_connection.py`.
@@ -118,16 +151,18 @@ The pause/resume API a future agent would call instead of a human:
 
 ## Open questions (only the human can answer these)
 
-- Hermes's actual hostname/IP and the port its Chrome instance exposes CDP on.
-- Does a tunnel to that port already exist, or does something here need to open
-  one (SSH `-L` forward, WireGuard, etc.)?
-- Is Chrome already running on Hermes with `--remote-debugging-port` under some
-  supervisor, or does that also need to be stood up?
-- Topology: does browser-worker run *on* Hermes itself (CDP reachable via
-  `localhost`), or does it reach Hermes's CDP port from wherever `docker compose`
-  runs, over a network tunnel? Changes what "privately-tunneled" means in practice.
-- Whose identity is logged into Hermes's persistent Chrome profile - single shared
-  account, consistent with this being a single-user platform (see README.md)?
-- What should actually answer a manual-intervention pause on Hermes - a polling
-  loop, a webhook, a live Claude Code session watching `browser-status`? No
-  mechanism is chosen yet, not even provisionally.
+- Bare systemd vs. dockerized: does browser-worker actually get deployed on
+  Hermes via this repo's docker-compose flow (using `host.docker.internal`), or
+  run some other way that fits Hermes's existing all-systemd-services model?
+  Determines which `BROWSER_CDP_URL` form (`http://localhost:9222` vs.
+  `http://host.docker.internal:9222`) is the real one to set.
+- Manual-intervention mechanism: polling+Telegram cron, a webhook, or a live
+  agent session - "Hermes facts" above names polling+Telegram as the leading
+  option, but nothing is decided or built.
+- Whose identity is logged into Hermes's persistent Chrome profile - presumably
+  Brian's own, consistent with this being a single-user platform (README.md),
+  but never stated explicitly.
+- Not yet attempted: an actual live run against Hermes's Chrome (this dev
+  environment can't reach port 9222 over Tailscale by design - see "Status" -
+  so this needs to happen from Hermes itself or wherever browser-worker
+  actually deploys).
