@@ -112,14 +112,32 @@ _ARIA_SNAPSHOT_LINE_RE = re.compile(r'^-\s+([a-zA-Z][\w-]*)\s+"([^"]*)"(?:\s+\[(
 # found nothing on that page - not because of a settle-timing issue (the
 # same queries still found nothing well after the page had visibly finished
 # rendering, screenshot and accessibility-snapshot confirmed), but because
-# they simply cannot see past the shadow boundary. The accessibility tree
-# is a different mechanism entirely - the same flattened tree a screen
-# reader reads from - and crosses shadow (and even iframe) boundaries by
-# construction, so it reaches these fields regardless. Used as a fallback,
-# not a replacement: gated behind "the CSS-based scan found nothing", so it
-# adds no behavior change (and no per-iteration cost) on every previously-
+# they simply cannot see past the shadow boundary. `Locator.aria_snapshot()`
+# does cross shadow-DOM boundaries (confirmed live and by test), which is
+# what makes this fallback work at all. Used as a fallback, not a
+# replacement: gated behind "the CSS-based scan found nothing", so it adds
+# no behavior change (and no per-iteration cost) on every previously-
 # confirmed-working platform (Greenhouse/Lever/Ashby/Workday/Epic), which
 # all expose real native form elements in light DOM.
+#
+# KNOWN GAP, NOT fixed by this fallback (confirmed live against a real
+# iCIMS posting, careers-gdms.icims.com): unlike shadow DOM,
+# `page.locator("body").aria_snapshot()` does NOT descend into a same-page
+# <iframe>'s content - iCIMS renders its ENTIRE apply form (and, per
+# render_server.py's own iframe fix, its entire job description) inside
+# one. _gather_signals/_find_visible_form/inspect_form/fill_field/
+# upload_document/_find_button_by_words are all written in terms of a
+# single `page` (or an ElementHandle scoped to it) throughout this file;
+# none of them ever look inside a child Frame. Confirmed the run pauses as
+# UNKNOWN/unsupported_flow on iCIMS's real apply page with
+# visible_field_count == 0 despite this fallback being active - the
+# accessibility-tree approach alone doesn't solve the iframe case the way
+# it solves the shadow-DOM case. Properly fixing this means threading
+# frame-awareness through every one of the methods above (which frame is
+# "the" form currently live in, and operating fill/upload/click calls
+# against that Frame rather than always against `page`) - a materially
+# larger change than this fallback, deliberately not attempted here rather
+# than ship something partial/untested against a real site.
 _ACCESSIBILITY_FIELD_ROLES = {"textbox", "searchbox", "combobox", "spinbutton"}
 _ACCESSIBILITY_CHOICE_ROLES = {"checkbox", "radio"}
 _ACCESSIBILITY_BUTTON_ROLES = {"button", "link"}

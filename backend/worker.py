@@ -69,6 +69,18 @@ _HTML_TAG_RE = re.compile(r"<[^<]+?>")
 # and title extracting correctly while everything else (skills, salary,
 # requirements) came back empty from an LLM that never actually saw them.
 _SCRIPT_STYLE_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
+# Confirmed live against a real iCIMS posting (careers-gdms.icims.com): the
+# ENTIRE real job posting - title, location, full description - renders
+# inside a same-page <iframe id="icims_content_iframe">, loaded via a
+# separate HTTP request the plain httpx GET never makes. The top-level HTML
+# httpx *does* fetch is real, well-formed, and several hundred KB (site
+# nav/chrome/footer) - comfortably past _THIN_CONTENT_CHARS, so the normal
+# "thin content -> fall back to browser render" trigger never fires, and
+# extraction silently ran on 100% wrong content (no job details, no
+# location) while still reporting fetch_succeeded=True. Checked against the
+# UNSTRIPPED raw HTML (the marker is inside a script/iframe src attribute
+# that _strip_html would otherwise remove).
+_IFRAME_CONTENT_SHELL_MARKERS = ("icims_content_iframe",)
 
 
 def _strip_html(raw_html: str) -> str:
@@ -134,17 +146,21 @@ async def _fetch_raw_text(url: str) -> tuple[str, bool]:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             response = await client.get(url, headers={"User-Agent": _USER_AGENT})
             response.raise_for_status()
-            text = _strip_html(response.text)
+            raw_html = response.text
+            text = _strip_html(raw_html)
     except Exception as exc:
         logger.warning("Failed to fetch job posting URL %s: %s", url, exc)
+        raw_html = ""
         text = ""
 
-    if len(text) >= _THIN_CONTENT_CHARS:
+    is_iframe_content_shell = any(marker in raw_html for marker in _IFRAME_CONTENT_SHELL_MARKERS)
+
+    if len(text) >= _THIN_CONTENT_CHARS and not is_iframe_content_shell:
         return text, True
 
     logger.info(
-        "Plain HTTP fetch for %s returned only %d chars - falling back to browser render",
-        url, len(text),
+        "Plain HTTP fetch for %s returned %d chars%s - falling back to browser render",
+        url, len(text), " (iframe content shell)" if is_iframe_content_shell else "",
     )
     rendered_text, rendered_success = await _fetch_via_browser(url)
     if rendered_success:

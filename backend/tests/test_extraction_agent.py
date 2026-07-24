@@ -250,6 +250,59 @@ class TestProcessExtractionTask:
         assert job.extracted_data["raw_text_length"] == len(rendered_text)
 
     @pytest.mark.asyncio
+    async def test_process_extraction_task_falls_back_when_content_is_an_iframe_shell(self, db):
+        """A plain httpx GET can return plenty of TEXT (past
+        _THIN_CONTENT_CHARS) while still containing none of the real job
+        content, if the real content is loaded into a same-page <iframe>
+        via a separate HTTP request the plain fetch never makes. Confirmed
+        live against a real iCIMS posting (careers-gdms.icims.com): the
+        fetched page was several hundred KB of genuine site nav/chrome, with
+        the actual job title/location/description entirely inside
+        <iframe id="icims_content_iframe">. worker._fetch_raw_text must
+        treat this the same as thin content - falling back to a real
+        browser render - rather than confidently reporting fetch success on
+        page chrome with zero job details."""
+        user, job = self._make_user_and_job(db)
+
+        task = WorkflowTask(
+            workflow_type="job_extraction",
+            entity_id=job.id,
+            status=WorkflowStatus.running,
+        )
+        db.add(task)
+        db.commit()
+
+        # Long enough to clear _THIN_CONTENT_CHARS on its own - the point is
+        # this alone must NOT be treated as success once the iframe marker
+        # is present.
+        shell_html = (
+            "<html><body><nav>Site Navigation Chrome</nav>"
+            + "Padding text so this clears the thin-content threshold. " * 10
+            + '<iframe id="icims_content_iframe" src="/jobs/1/job?in_iframe=1"></iframe>'
+            + "</body></html>"
+        )
+        mock_response = AsyncMock()
+        mock_response.text = shell_html
+        mock_response.status_code = 200
+        mock_response.raise_for_status = lambda: None
+
+        rendered_text = (
+            "UC Telephony Software Engineer US-MA-Dedham. " + "Real job description content. " * 10
+        )
+
+        with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)), \
+                patch("worker._fetch_via_browser", new=AsyncMock(return_value=(rendered_text, True))):
+            await process_extraction_task(task, db)
+            db.commit()
+
+        db.refresh(job)
+        db.refresh(task)
+
+        assert task.status == WorkflowStatus.completed
+        assert not job.extracted_data.get("fetch_warning")
+        assert job.extracted_data["raw_text_length"] == len(rendered_text)
+
+    @pytest.mark.asyncio
     async def test_process_extraction_task_preserves_authoritative_company_and_title(self, db):
         """A job discovered via a company watch already has real company/
         title/location straight from the ATS's own API - the extraction

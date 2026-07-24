@@ -115,12 +115,51 @@ async def render(req: RenderRequest, _: None = Depends(_require_internal_api_key
         # already uses for the same reason (see generic_adapter.py).
         await page.wait_for_timeout(_SETTLE_WAIT_MS)
 
-        try:
-            text = await page.evaluate(_VISIBLE_TEXT_JS)
-        except Exception as exc:
-            return RenderResponse(success=False, error=f"text extraction failed: {exc}")
+        # Confirmed live against a real iCIMS posting (General Dynamics
+        # Mission Systems): iCIMS renders the ENTIRE real job posting -
+        # title, location, full description - inside a child <iframe>
+        # (id="icims_content_iframe"); the top-level document.body is only
+        # nav/footer chrome. Evaluating just `page` (as this used to)
+        # returned real-looking but entirely wrong content (site
+        # boilerplate, no job details at all, no location) rather than an
+        # obvious empty/thin-content failure - a more dangerous failure
+        # mode than Workday/Ashby's "returns nothing", since it wouldn't
+        # have tripped worker.py's thin-content fallback trigger at all.
+        # page.frames (Playwright's own frame tree, populated via CDP) can
+        # read a frame's content regardless of same-origin policy - unlike
+        # raw JS `iframe.contentDocument`, which same-origin-iframe-only
+        # script on the page itself would be restricted by. A frame that
+        # errors (still loading, cross-origin sandboxed, detached) is
+        # skipped rather than failing the whole request.
+        #
+        # Child frames are ordered BEFORE the main frame, not just appended
+        # after it - confirmed live on the same real iCIMS posting: even
+        # once child-frame text was included at all, putting it last (after
+        # several KB of the main frame's mega-menu site nav) still
+        # measurably degraded extraction quality downstream (skills/
+        # requirements came back nearly empty despite the real content
+        # technically being present somewhere in the string) and left the
+        # human-facing description field's own truncation
+        # (backend/worker.py's _MAX_DESCRIPTION_CHARS) showing 100% nav
+        # chrome, 0% real content. A site that goes to the trouble of
+        # isolating job content in its own child iframe is reliably doing
+        # so to separate it from generic site chrome - so child-frame text
+        # is the higher-value content whenever both exist.
+        child_texts = []
+        main_text = ""
+        for frame in page.frames:
+            try:
+                frame_text = await frame.evaluate(_VISIBLE_TEXT_JS)
+            except Exception:
+                continue
+            if not frame_text:
+                continue
+            if frame == page.main_frame:
+                main_text = frame_text
+            else:
+                child_texts.append(frame_text)
 
-        return RenderResponse(success=True, text=text or "")
+        return RenderResponse(success=True, text="\n".join(child_texts + ([main_text] if main_text else [])))
     finally:
         await context.close()
 
