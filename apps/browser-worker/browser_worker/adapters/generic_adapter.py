@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 
 _NEXT_BUTTON_WORDS = ("next", "continue", "proceed")
 _SUBMIT_BUTTON_WORDS = ("submit", "apply", "send application", "finish")
+# Confirmed live against a real SmartRecruiters posting: its primary CTA is
+# "I'm Interested", not any word containing "apply" - _score_landing scored
+# it too low to ever cross the detect_state confidence floor, so the run
+# paused as "unsupported_flow" before a single click happened.
+_APPLY_BUTTON_WORDS = ("apply now", "apply", "i'm interested")
 
 # Fallback label lookup for forms that associate a label with its field
 # through DOM position rather than a semantic <label for="..."> - e.g.
@@ -90,6 +95,35 @@ el => {{
 # that's concatenated directly into the label div's text content.
 _TRAILING_REQUIRED_MARKER_RE = re.compile(r"[✱*]+\s*$")
 
+# Parses one line of Locator.aria_snapshot()'s output, e.g.:
+#   - textbox "First name": Brian
+#   - checkbox "I agree" [checked]
+#   - button "Next"
+# See _accessibility_nodes for why this (rather than the removed
+# Page.accessibility.snapshot() dict-tree API) is what's used.
+_ARIA_SNAPSHOT_LINE_RE = re.compile(r'^-\s+([a-zA-Z][\w-]*)\s+"([^"]*)"(?:\s+\[([^\]]*)\])?(?::\s?(.*))?$')
+
+# Confirmed live against a real SmartRecruiters "OneClick" apply form: it's
+# built entirely from custom Web Components (oc-input, spl-input, oc-button,
+# spl-autocomplete, ...) whose real, fillable <input>/<textarea> elements
+# live one level inside *open* shadow DOM. Every field/button-discovery
+# query in this file up to this point (page.query_selector_all("input:
+# visible, ..."), document.querySelectorAll in the JS signal snippets)
+# found nothing on that page - not because of a settle-timing issue (the
+# same queries still found nothing well after the page had visibly finished
+# rendering, screenshot and accessibility-snapshot confirmed), but because
+# they simply cannot see past the shadow boundary. The accessibility tree
+# is a different mechanism entirely - the same flattened tree a screen
+# reader reads from - and crosses shadow (and even iframe) boundaries by
+# construction, so it reaches these fields regardless. Used as a fallback,
+# not a replacement: gated behind "the CSS-based scan found nothing", so it
+# adds no behavior change (and no per-iteration cost) on every previously-
+# confirmed-working platform (Greenhouse/Lever/Ashby/Workday/Epic), which
+# all expose real native form elements in light DOM.
+_ACCESSIBILITY_FIELD_ROLES = {"textbox", "searchbox", "combobox", "spinbutton"}
+_ACCESSIBILITY_CHOICE_ROLES = {"checkbox", "radio"}
+_ACCESSIBILITY_BUTTON_ROLES = {"button", "link"}
+
 
 class GenericAdapter(ATSAdapter):
     """Fallback adapter for unknown ATS systems.
@@ -110,6 +144,76 @@ class GenericAdapter(ATSAdapter):
     async def detect(self, page: Page) -> bool:
         """Always returns True as fallback"""
         return True
+
+    async def _accessibility_nodes(self, page: Page) -> List[dict]:
+        """Flattened accessibility tree (role + name + value/checked per
+        node) - see the module-level comment above _ACCESSIBILITY_FIELD_ROLES
+        for why this exists. Empty list on any failure (e.g. page
+        mid-navigation) rather than raising - every caller treats this as a
+        best-effort fallback source, not a required one.
+
+        `Page.accessibility.snapshot()` (the API this was originally written
+        against) doesn't exist in the Playwright version actually installed
+        here (1.61 - it was removed some versions back in favor of
+        Locator.aria_snapshot()), which meant this silently returned []
+        every time via the except-Exception branch, without a single
+        currently-affected platform ever surfacing an error - confirmed
+        live: SmartRecruiters' apply form still showed zero discovered
+        fields after switching to the modern API, which is what led to
+        finding the *real*, separate blocker (a DataDome challenge, see
+        captcha_detection.py) rather than this being the last word on why.
+        aria_snapshot() returns a YAML-ish tree as one string, not a
+        dict - each field/button line looks like:
+            - textbox "First name": Brian
+            - checkbox "I agree" [checked]
+        parsed by _ARIA_SNAPSHOT_LINE_RE below. No `required` info is
+        exposed this way (confirmed: a real required-attribute input's
+        accessible name in this format carries no marker for it, and the
+        visible "*" seen on a real SmartRecruiters label is a separate
+        sibling text node, not part of the field's own accessible name) -
+        every field built from this fallback defaults required=False.
+        """
+        try:
+            snapshot = await page.locator("body").aria_snapshot()
+        except Exception:
+            return []
+        nodes: List[dict] = []
+        for line in snapshot.splitlines():
+            match = _ARIA_SNAPSHOT_LINE_RE.match(line.strip())
+            if not match:
+                continue
+            role, name, flags, value = match.groups()
+            name = (name or "").strip()
+            if not name:
+                continue
+            nodes.append({
+                "role": role,
+                "name": name,
+                "checked": "checked" in (flags or ""),
+                "value": (value or "").strip(),
+            })
+        return nodes
+
+    @staticmethod
+    def _is_accessibility_node_filled(node: dict) -> bool:
+        if node.get("role") in _ACCESSIBILITY_CHOICE_ROLES:
+            return bool(node.get("checked"))
+        return bool((node.get("value") or "").strip())
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", text.strip().lower()).strip("_") or "field"
+
+    @staticmethod
+    def _role_selector(role: str, name: str) -> str:
+        """Playwright's built-in `role=` selector engine - accessibility-
+        tree based (like _accessibility_nodes above), so it resolves the
+        same shadow-DOM-nested element the snapshot found it from. Passed
+        straight into the existing page.fill()/check()/set_input_files()
+        calls elsewhere in this file, which accept any Playwright selector
+        string - no change needed to the filling code itself."""
+        escaped = name.replace('"', '\\"').replace("\n", " ")
+        return f'role={role}[name="{escaped}" i]'
 
     async def _find_visible_form(self, page: Page) -> Optional[ElementHandle]:
         form = await page.query_selector("form:visible")
@@ -202,6 +306,39 @@ class GenericAdapter(ATSAdapter):
         # live against Epic's real Avature-hosted careers portal).
         inputs = await form.query_selector_all("input:visible:not([type='file']), select:visible, textarea:visible")
         inputs.extend(await self._find_genuinely_present_file_inputs(form))
+
+        # Shadow-DOM fallback - see _ACCESSIBILITY_FIELD_ROLES. Combobox
+        # (e.g. a location autocomplete) is treated as plain text, not a
+        # native <select>: these are typically typeahead widgets accepting
+        # free text, not a fixed enumerable option list, and confirmed live
+        # (SmartRecruiters' "City" field) to be a real <input> under the
+        # custom element - page.fill() works on it the same as any textbox.
+        if not inputs:
+            for node in await self._accessibility_nodes(page):
+                role = node.get("role")
+                name = (node.get("name") or "").strip()
+                if not name:
+                    continue
+                if role in _ACCESSIBILITY_FIELD_ROLES:
+                    input_type = "text"
+                elif role in _ACCESSIBILITY_CHOICE_ROLES:
+                    input_type = role
+                else:
+                    continue
+                fields.append(
+                    FormField(
+                        # aria_snapshot() carries no `required` info (see
+                        # _accessibility_nodes) - defaults False, a known
+                        # simplification of this fallback path.
+                        name=self._slugify(name),
+                        label=name,
+                        input_type=input_type,
+                        required=False,
+                        options=None,
+                        placeholder=None,
+                        selector=self._role_selector(role, name),
+                    )
+                )
 
         for input_elem in inputs:
             name = await input_elem.get_attribute("name")
@@ -406,6 +543,34 @@ class GenericAdapter(ATSAdapter):
             text = ((await el.text_content()) or (await el.get_attribute("value")) or "").strip().lower()
             if text and any(word in text for word in words):
                 return el
+        # Shadow-DOM fallback - see _ACCESSIBILITY_FIELD_ROLES. Only when no
+        # narrower `scope` was requested: the accessibility tree here is
+        # always walked from the whole page (Locator.aria_snapshot() has no
+        # equivalent of an ElementHandle-scoped query in this codebase's
+        # usage), so honoring `scope`'s whole reason for existing - keeping
+        # a page-wide word list like ("log in", "sign in") from matching an
+        # unrelated header/nav link instead of the form's own control -
+        # means skipping this fallback entirely whenever a caller actually
+        # asked for that narrowing (confirmed by a real regression: this
+        # unconditionally matched the header's "log in" link even when
+        # scoped to a form with no such control at all). Every current
+        # caller that needs the shadow-DOM fallback (navigate_next, the
+        # submit-button lookup, _handle_landing's apply click) calls this
+        # unscoped anyway.
+        if scope is not None:
+            return None
+        for node in await self._accessibility_nodes(page):
+            if node.get("role") not in _ACCESSIBILITY_BUTTON_ROLES:
+                continue
+            name = (node.get("name") or "").strip()
+            if not name or not any(word in name.lower() for word in words):
+                continue
+            try:
+                handle = await page.get_by_role(node["role"], name=name, exact=True).first.element_handle()
+            except Exception:
+                continue
+            if handle:
+                return handle
         return None
 
     async def navigate_next(self, page: Page) -> NavigationResult:
@@ -621,6 +786,33 @@ class GenericAdapter(ATSAdapter):
                 unchecked_required_checkbox = True
                 break
 
+        # Shadow-DOM fallback - see _ACCESSIBILITY_FIELD_ROLES. Gated on
+        # non_file_fields being empty so every already-confirmed-working
+        # platform (real native inputs in light DOM) pays zero extra cost
+        # and sees zero behavior change - this only activates on a page
+        # where the CSS-based scan above found nothing at all.
+        role_field_count = 0
+        if not non_file_fields:
+            role_nodes = await self._accessibility_nodes(page)
+            role_button_names = [
+                (n.get("name") or "").strip().lower()
+                for n in role_nodes
+                if n.get("role") in _ACCESSIBILITY_BUTTON_ROLES
+            ]
+            buttons = list(dict.fromkeys(buttons + [n for n in role_button_names if n]))
+            role_field_nodes = [
+                n for n in role_nodes
+                if n.get("role") in _ACCESSIBILITY_FIELD_ROLES | _ACCESSIBILITY_CHOICE_ROLES
+            ]
+            role_field_count = len(role_field_nodes)
+            if role_field_nodes:
+                has_any_filled_field = has_any_filled_field or any(
+                    self._is_accessibility_node_filled(n) for n in role_field_nodes
+                )
+                has_unfilled_visible_field = has_unfilled_visible_field or any(
+                    not self._is_accessibility_node_filled(n) for n in role_field_nodes
+                )
+
         # See _visible_body_text - excludes <script>/<style> element text
         # (e.g. a SPA's JSON hydration payload) from the keyword-matching
         # signals below (email-verification detection in particular).
@@ -636,8 +828,8 @@ class GenericAdapter(ATSAdapter):
             "resume_already_attached": resume_already_attached,
             "has_any_filled_field": has_any_filled_field,
             "has_unfilled_visible_field": has_unfilled_visible_field,
-            "visible_field_count": len(visible_fields),
-            "non_file_field_count": len(non_file_fields),
+            "visible_field_count": len(visible_fields) or role_field_count,
+            "non_file_field_count": len(non_file_fields) or role_field_count,
             "unchecked_required_checkbox": unchecked_required_checkbox,
             "body_text": body_text,
         }
@@ -650,7 +842,7 @@ class GenericAdapter(ATSAdapter):
         # handler that actually clicks it, _find_button_by_words); this one
         # was the odd one out, which meant a page could score too low here
         # to ever reach the click that would have revealed the real form.
-        if any(w in b for b in s["buttons"] for w in ("apply", "apply now")):
+        if any(w in b for b in s["buttons"] for w in _APPLY_BUTTON_WORDS):
             score += 0.6
         if s["visible_field_count"] == 0 and not s["has_password"]:
             score += 0.3
@@ -912,7 +1104,7 @@ class GenericAdapter(ATSAdapter):
         budget (40 identical checkpoints) before finally giving up with a
         vague "exceeded transition/time budget" error - failing fast here
         instead gives a specific, actionable one."""
-        btn = await self._find_button_by_words(page, ("apply now", "apply"))
+        btn = await self._find_button_by_words(page, _APPLY_BUTTON_WORDS)
         if not btn:
             return StateHandlerResult(success=False, error="No Apply button found")
 

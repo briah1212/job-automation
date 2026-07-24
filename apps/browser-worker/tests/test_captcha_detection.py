@@ -49,6 +49,15 @@ class TestInteractiveChallengesDetected:
         html = '<div class="cf-turnstile" data-sitekey="abc123" style="width:300px;height:65px;"></div>'
         assert await _detected_for(html) is True
 
+    @pytest.mark.asyncio
+    async def test_datadome_block_page_detected(self):
+        """Confirmed live against a real SmartRecruiters (WesternDigital)
+        posting: DataDome's block shell replaces the entire page body with
+        exactly this markup - a #cmsg placeholder plus a script pulled
+        from captcha-delivery.com."""
+        html = '<p id="cmsg">Please enable JS and disable any ad blocker</p><script src="https://ct.captcha-delivery.com/c.js"></script>'
+        assert await _detected_for(html) is True
+
 
 class TestInvisibleV3NotTriggered:
     @pytest.mark.asyncio

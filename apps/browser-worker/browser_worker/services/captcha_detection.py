@@ -4,10 +4,15 @@ Spec-mandated: no CAPTCHA or anti-bot circumvention of any kind. This module
 never attempts to solve or interact with a challenge - it only recognizes
 one is present so the caller can pause for a human (PauseReason.CAPTCHA).
 
-Live research turned up two vendors in real ATS flows: reCAPTCHA (Greenhouse,
-Ashby) and hCaptcha (Lever). Both are handled generically here rather than
-as adapter-specific checks, since the widget markup is standardized by the
-vendor, not the ATS.
+Live research turned up three vendors in real ATS flows: reCAPTCHA
+(Greenhouse, Ashby), hCaptcha (Lever), and DataDome (SmartRecruiters -
+confirmed live against a real WesternDigital posting's "OneClick" apply
+flow, whose entire page body was replaced by DataDome's block/challenge
+shell - `x-datadome: protected` response header, a script pulled from
+captcha-delivery.com, and a `#cmsg` "Please enable JS and disable any ad
+blocker" placeholder in place of any real content). All three are handled
+generically here rather than as adapter-specific checks, since the widget
+markup is standardized by the vendor, not the ATS.
 
 Deliberately NOT triggered by mere presence of a `g-recaptcha-response` /
 `h-captcha-response` hidden field - that field is injected on the page
@@ -34,6 +39,13 @@ _CAPTCHA_CHALLENGE_SELECTORS = (
     "iframe[title*='hCaptcha' i]:visible",
     "iframe[src*='hcaptcha.com']:visible",
     "iframe[src*='challenges.cloudflare.com']:visible",
+    # DataDome's block/challenge shell entirely replaces the real page
+    # (not a widget floating within one), so unlike the others above this
+    # isn't gated on :visible - #cmsg is specific enough to DataDome's own
+    # template that presence alone, regardless of momentary visibility, is
+    # a reliable signal without also matching an unrelated real page.
+    "#cmsg",
+    "script[src*='captcha-delivery.com']",
 )
 
 

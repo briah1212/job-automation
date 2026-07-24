@@ -256,12 +256,13 @@ class BrowserWorker:
 
     async def _wait_for_form_content(self, page: Page) -> bool:
         """Best-effort wait for real form content (an input/select/textarea)
-        to appear - used only when the very first page classification of a
-        run comes back UNKNOWN, right before that would otherwise escalate
-        immediately (see _FIRST_DETECTION_SETTLE_TIMEOUT_MS). Returns True
-        if something appeared and re-classifying is worth it, False on
-        timeout (there's genuinely no form yet, e.g. a plain landing page -
-        not an error, just nothing to wait for)."""
+        to appear - spent once per unknown-streak, the first time a page
+        classification comes back UNKNOWN, right before that would otherwise
+        fall back to retrying the previous state's handler or escalate (see
+        _FIRST_DETECTION_SETTLE_TIMEOUT_MS). Returns True if something
+        appeared and re-classifying is worth it, False on timeout (there's
+        genuinely no form yet, e.g. a plain landing page - not an error,
+        just nothing to wait for)."""
         try:
             await page.wait_for_selector(
                 "input:visible, select:visible, textarea:visible",
@@ -317,12 +318,24 @@ class BrowserWorker:
                     decision_reasoning=adapter.get_last_detection_reasoning(),
                     field_sources=ctx.field_sources, action_log=ctx.action_log,
                 )
-                if ctx.last_known_state is None and not settled_first_detection:
-                    # No fallback state to retry as, and nothing confirms yet
-                    # whether this is a genuinely unsupported page or just a
-                    # slow-hydrating SPA (networkidle fired before the real
-                    # form rendered - confirmed live against a real Ashby
-                    # posting). Spend the settle-wait once before escalating.
+                if not settled_first_detection:
+                    # Originally gated to "only the run's very first-ever
+                    # detection" (ctx.last_known_state is None), on the
+                    # reasoning that a slow-hydrating SPA only needs a
+                    # settle-wait once, right at task start. Confirmed live
+                    # against a real SmartRecruiters posting that this gap
+                    # isn't unique to the first page: clicking its "I'm
+                    # Interested" CTA navigates to a distinct client-rendered
+                    # apply subpage (oneclick-ui) that is every bit as
+                    # capable of being caught mid-hydration as the very first
+                    # page was - and without a settle-wait there, UNKNOWN
+                    # fell back to retrying the *previous* state's handler
+                    # (_handle_landing) against the new, still-empty page,
+                    # which failed immediately with "No Apply button found"
+                    # instead of ever giving the real page a chance to
+                    # render. Spending one settle-wait per unknown-streak
+                    # (reset alongside ctx.unknown_streak below, not just
+                    # once per run) covers both cases.
                     settled_first_detection = True
                     if await self._wait_for_form_content(page):
                         ctx.unknown_streak = 0
@@ -333,6 +346,7 @@ class BrowserWorker:
                 state = ctx.last_known_state
             else:
                 ctx.unknown_streak = 0
+                settled_first_detection = False
                 ctx.last_known_state = state
                 await self.checkpoint_manager.create_checkpoint(
                     session_id=ctx.session_id, page=page, step=state.value,
