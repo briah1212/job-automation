@@ -147,7 +147,9 @@ The pause/resume API a future agent would call instead of a human:
   against actual code before trusting anything procedural in these two.
 - [`backend/app/ai_gateway/README.md`](./backend/app/ai_gateway/README.md) -
   AI provider gateway (mock/Anthropic/OpenAI/DeepSeek).
-- [`backend/SETUP.md`](./backend/SETUP.md) - backend-only setup.
+- [`backend/SETUP.md`](./backend/SETUP.md) - backend-only setup. Same caveat as the
+  browser-worker docs above: documents an old non-Docker `/home/brian/job_automation`
+  workflow, not the `setup-portable.sh`/docker-compose path this repo actually uses now.
 - [`HANDOFF.md`](./HANDOFF.md) - prior session handoff notes. (`PROJECT_STATUS.md`/
   `FINAL_STATUS.md` deliberately omitted - same pre-Docker `ssh bhead` model as the
   two docs above, superseded and redundant with HANDOFF.md; don't follow them.)
