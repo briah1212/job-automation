@@ -990,7 +990,13 @@ class GenericAdapter(ATSAdapter):
         # real safety property; needs the Python-side "does the candidate
         # actually have data for this field" check (already computed by
         # resolve_field_value) threaded into this signal, not a bigger
-        # DOM-only regex.
+        # DOM-only regex. Confirmed live a second time against a real
+        # Teamtailor posting (SOFTSWISS): an optional, empty "cover_letter"
+        # textarea (no data for it, nothing required about it) blocked
+        # SUBMIT_READY the same way - stall-detected and escalated
+        # correctly rather than a false success, exactly the safe fallback
+        # this gap was left with. Still not fixed - the stall detector,
+        # not this signal, is what's actually protecting these runs.
         has_unfilled_visible_field = await page.evaluate(
             """() => Array.from(document.querySelectorAll(
                 "input:not([type=file]):not([type=checkbox]):not([type=radio]):not([type=hidden]), select, textarea"
