@@ -111,6 +111,26 @@ el => {
     return null;
 }
 """
+# KNOWN GAP, NOT fixed here: this fallback (and _resolve_label's
+# aria-labelledby check above it) both require SOME kind of semantic
+# marker to find a field's real label - a className containing "field"/
+# "label" here, an actual aria-labelledby/<label for> there. Confirmed
+# live against a real Rippling posting (Just Appraised): every plain text
+# input (first/last name, email, phone number, location, LinkedIn,
+# website, race - 9 fields) correctly resolves via aria-labelledby, but
+# every custom role="combobox" dropdown widget (a phone country-code
+# sub-selector, plus a whole block of screening questions - "What industry
+# is Just Appraised in?", "What backend programming language are you most
+# proficient with?", and more) has NEITHER an aria-labelledby NOR any
+# className resembling "field"/"label" - their real label is genuinely
+# just visually-adjacent text with zero programmatic link to the input at
+# all, and every class name involved is an opaque CSS-in-JS hash (e.g.
+# "css-15epsmk etc2niq2"). A general fix would need a className-agnostic
+# "nearest preceding text content, structurally" heuristic - not attempted
+# here, since a broader/fuzzier version of this fallback risks grabbing
+# the WRONG nearby text (help copy, an unrelated heading) on some other
+# real site, and every plain text input on this same real form already
+# resolves correctly via aria-labelledby.
 # True if no ANCESTOR (not the element itself) hides the element behind
 # substantial alternate content - deliberately ignores the element's own
 # display/visibility, since a file input is routinely hidden by its own
@@ -322,16 +342,56 @@ class GenericAdapter(ATSAdapter):
         return await page.query_selector("body")
 
     async def _resolve_label(self, page: Page, input_elem: ElementHandle, input_id: Optional[str]) -> Optional[str]:
-        """<label for=id> first, then the DOM-sibling fallback, cleaned of
-        a trailing required-marker - shared by every field type (including
-        each option inside a radio group, where it resolves that option's
-        own choice text rather than the group's question)."""
+        """<label for=id> first, then aria-labelledby, then the DOM-sibling
+        fallback, cleaned of a trailing required-marker - shared by every
+        field type (including each option inside a radio group, where it
+        resolves that option's own choice text rather than the group's
+        question).
+
+        Confirmed live against a real Rippling posting (Just Appraised):
+        every field's own `name`/`id` is a fully random, opaque string
+        (e.g. "8PpiPJq9jw") with zero semantic relationship to what the
+        field actually asks - no <label for=id>, and the real label text
+        sits several DOM levels away from the input (not a sibling this
+        adapter's existing fallback pattern would find), connected only
+        via `aria-labelledby="field-12-label"` pointing at a
+        `<span id="field-12-label">First name</span>` elsewhere in the
+        tree. This is itself a first-class, standard accessible-labeling
+        mechanism (not a hack), just one this adapter never checked -
+        without it, every field's label fell through to inspect_form's
+        last-resort raw-identifier prettification, showing an opaque
+        machine-generated string (e.g. "Lj51Rek51Zx") as the question text
+        a human would need to answer.
+        """
         try:
             resolved = None
             if input_id:
                 label_elem = await page.query_selector(f'label[for="{input_id}"]')
                 if label_elem:
                     resolved = await label_elem.text_content()
+            if not resolved:
+                labelledby_id = await input_elem.get_attribute("aria-labelledby")
+                if labelledby_id:
+                    # aria-labelledby can reference multiple space-separated
+                    # IDs, concatenated in order per the ARIA spec - real
+                    # sites (confirmed live: Rippling splits "First name"
+                    # and its "*" required-marker into two separate spans)
+                    # routinely use more than one.
+                    parts = []
+                    for ref_id in labelledby_id.split():
+                        # Attribute selector, not a `#id` CSS ID selector -
+                        # real-world IDs (confirmed live: Rippling's own
+                        # "field-12-label") can start with characters or
+                        # contain patterns that need escaping as a CSS ID
+                        # selector; matching by attribute value sidesteps
+                        # that entirely.
+                        ref_elem = await page.query_selector(f'[id="{ref_id}"]')
+                        if ref_elem:
+                            text = (await ref_elem.text_content()) or ""
+                            if text.strip():
+                                parts.append(text.strip())
+                    if parts:
+                        resolved = " ".join(parts)
             if not resolved:
                 resolved = await input_elem.evaluate(_SIBLING_LABEL_JS)
             if resolved:
