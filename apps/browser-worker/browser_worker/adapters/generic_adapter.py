@@ -806,10 +806,28 @@ class GenericAdapter(ATSAdapter):
             "button:visible, input[type='submit']:visible, input[type='button']:visible, a:visible"
         )
         buttons: List[str] = []
+        # Confirmed live against a real Duke University (SuccessFactors)
+        # posting: distinguishes an Apply CTA that's a genuine navigation
+        # to a different page (Duke's own /talentcommunity/apply/... URL,
+        # like nearly every real ATS) from one that's a same-page anchor/
+        # JS scroll-to-form (the real Greenhouse case that originally
+        # motivated _score_landing's incidental-fields penalty below - see
+        # that comment). Only the latter means unrelated fields elsewhere
+        # on the page (a site search box, a job-alert-subscription widget -
+        # both confirmed live on this same Duke page, neither related to
+        # the application) should count against a LANDING classification;
+        # for a real cross-page Apply link, those fields are just page
+        # furniture and irrelevant to whether this is still the landing
+        # page.
+        apply_link_is_cross_page = False
         for el in button_els:
             text = ((await el.text_content()) or (await el.get_attribute("value")) or "").strip().lower()
             if text:
                 buttons.append(text)
+            if any(w in text for w in _APPLY_BUTTON_WORDS):
+                href = await el.get_attribute("href")
+                if href and not href.startswith("#") and not href.lower().startswith("javascript:"):
+                    apply_link_is_cross_page = True
 
         has_password = (await page.query_selector("input[type='password']:visible")) is not None
         has_confirm_password = (await page.query_selector("input[name*='confirm' i][type='password']:visible")) is not None
@@ -942,6 +960,7 @@ class GenericAdapter(ATSAdapter):
             "has_unfilled_visible_field": has_unfilled_visible_field,
             "visible_field_count": len(visible_fields) or role_field_count,
             "non_file_field_count": len(non_file_fields) or role_field_count,
+            "apply_link_is_cross_page": apply_link_is_cross_page,
             "unchecked_required_checkbox": unchecked_required_checkbox,
             "body_text": body_text,
         }
@@ -963,8 +982,17 @@ class GenericAdapter(ATSAdapter):
         # application form on the same page as the job description - Apply
         # just scrolls to it, it isn't a real state transition) doesn't make
         # this a landing page anymore, regardless of the CTA still being
-        # present in the DOM.
-        if s["non_file_field_count"] >= 2:
+        # present in the DOM. Only applies when the Apply CTA is NOT a
+        # genuine navigation to a different page - confirmed live on a real
+        # Duke University (SuccessFactors) posting, an ordinary job-
+        # description landing page can have a handful of unrelated
+        # incidental fields (a site-wide search box, a job-alert-
+        # subscription widget) that have nothing to do with the
+        # application, while its real Apply link points to a genuinely
+        # different URL. Penalizing landing status there was wrong - those
+        # fields aren't evidence of an already-rendered application form
+        # the way they are on Greenhouse's true same-page case.
+        if s["non_file_field_count"] >= 2 and not s["apply_link_is_cross_page"]:
             score -= 0.4
         return max(0.0, min(score, 1.0))
 
@@ -1072,18 +1100,27 @@ class GenericAdapter(ATSAdapter):
         # input is present or already filled no longer matters here - what
         # matters is whether there are real, substantive fields to fill.
         #
-        # Threshold is >= 1, not >= 2 - confirmed live on a real Jobvite
-        # posting (NinjaOne): a "Data Consent" interstitial between the
-        # landing page and the real application form has exactly ONE real
-        # field (a required "Location of Residence and Language" select
-        # gating an "I Accept"/"I Decline" panel that only renders after a
-        # choice is made). With a >= 2 gate this page scored 0 everywhere,
-        # fell to UNKNOWN, and the state machine's own fallback-to-last-
-        # confident-state logic retried _handle_landing (searching for an
-        # "Apply"-worded button that doesn't exist on this page) - failing
-        # with a misleading "No Apply button found" instead of ever
-        # attempting to fill the one real field that was right there.
-        if s["non_file_field_count"] >= 1 and not s["has_password"]:
+        # KNOWN GAP, NOT fixed here (two rounds tried and reverted - see
+        # git history): a real Jobvite posting (NinjaOne) has a legitimate
+        # single-required-field "Data Consent" page that a >= 2 gate can't
+        # recognize as APPLICATION at all, falling to UNKNOWN and retrying
+        # _handle_landing with a misleading "No Apply button found".
+        # Loosening the gate to allow a single field when it's `required`
+        # was tried next and reverted just as fast: a real Duke University
+        # (SuccessFactors) posting has an ordinary job-description LANDING
+        # page with an unrelated "Create Alert" job-alert-subscription
+        # widget whose frequency input is ALSO genuinely marked `required`
+        # in the real HTML (an opt-in widget's own internal validation, not
+        # a signal about the actual application flow) - indistinguishable
+        # from Jobvite's case using only generic required-attribute
+        # presence. A real fix needs to know which fields belong to "the
+        # form that matters" versus incidental page furniture (search
+        # boxes, alert signups) - not reliably answerable from DOM
+        # signals (required-ness, field count) alone. Left at the safe
+        # >= 2 default; Jobvite's specific case still resolves via the
+        # existing no-progress stall detector rather than silently
+        # misclassifying an unrelated page as APPLICATION.
+        if s["non_file_field_count"] >= 2 and not s["has_password"]:
             score += 0.4
         if any(w in s["url"] for w in ("application", "apply-form", "apply")):
             score += 0.1
