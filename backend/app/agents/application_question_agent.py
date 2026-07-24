@@ -8,6 +8,36 @@ from app.models import ProfileFact, ReusableAnswer
 from app.services.experience_calculator import calculate_years_of_experience
 from app.services.reusable_answer_matching import find_matching_reusable_answer
 
+# Confirmed live against a real Jobvite posting (NinjaOne): the AI-generated
+# path's own prompt instructs "If the facts do not contain enough
+# information to answer, say so briefly" - the model followed that
+# instruction correctly, but nothing here ever checked WHETHER it did
+# before returning needs_user_input=False unconditionally. The literal
+# disclaimer prose ("The provided facts do not include any information
+# about a city.") was then typed straight into the real "City" field as if
+# it were a genuine answer - not a hypothetical, this happened on a real
+# live application. Any answer matching one of these phrases is treated as
+# "the AI couldn't actually answer" and escalated to needs_user_input
+# instead. Deliberately phrase-based, not a single word like "no" (a
+# legitimate one-word answer to a yes/no question), and covers this
+# constructions the current prompt's own wording ("say so") tends to
+# produce, not every conceivable refusal phrasing.
+_UNABLE_TO_ANSWER_PHRASES = (
+    "do not contain", "does not contain", "don't contain",
+    "do not include", "does not include", "don't include",
+    "not enough information", "insufficient information",
+    "no information about", "no information regarding",
+    "cannot determine", "can't determine", "unable to determine",
+    "i don't have", "i do not have", "not specified in",
+    "not provided in the", "not mentioned in the",
+)
+
+
+def _looks_like_unable_to_answer(answer_text: str) -> bool:
+    lowered = answer_text.lower()
+    return any(phrase in lowered for phrase in _UNABLE_TO_ANSWER_PHRASES)
+
+
 # Best-effort keyword list used to guess which skill a "years of experience" question
 # is asking about. Not exhaustive - falls back to matching any experience_bullet.
 _KNOWN_SKILLS = [
@@ -108,6 +138,7 @@ class ApplicationQuestionAgent(BaseAgent):
         answer_text = await gateway.generate_text(
             prompt=prompt, agent_type="application_question", user_id=user_id
         )
+        answer_text = answer_text.strip() if isinstance(answer_text, str) else answer_text
 
         source_facts = [
             {
@@ -117,8 +148,22 @@ class ApplicationQuestionAgent(BaseAgent):
             for fact in facts_used
         ]
 
+        # The prompt above explicitly tells the model to say so when it
+        # can't answer from the given facts - that's the correct, honest
+        # response, but it's prose meant for a human reviewer, not a
+        # literal value to type into the actual field. See
+        # _looks_like_unable_to_answer's docstring for how this was found.
+        if not answer_text or _looks_like_unable_to_answer(answer_text):
+            return {
+                "answer_text": "",
+                "source": "ai_generated",
+                "approved": False,
+                "needs_user_input": True,
+                "source_facts": source_facts,
+            }
+
         return {
-            "answer_text": answer_text.strip() if isinstance(answer_text, str) else answer_text,
+            "answer_text": answer_text,
             "source": "ai_generated",
             "approved": False,
             "needs_user_input": False,

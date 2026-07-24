@@ -21,6 +21,21 @@ from ..services.field_visibility import is_genuinely_fillable
 logger = logging.getLogger(__name__)
 
 _NEXT_BUTTON_WORDS = ("next", "continue", "proceed")
+# Confirmed live against a real Jobvite posting (NinjaOne): a "Data
+# Consent" interstitial requires selecting a location/language before an
+# "I Accept"/"I Decline" panel even renders - clicking "I Accept" is the
+# real progression action for that step, exactly equivalent in effect to a
+# "Next" button, just worded differently. _handle_application_page's
+# advance-to-next-step search only ever looked for _NEXT_BUTTON_WORDS, so
+# after the one real field was filled, nothing matched "I Accept" and the
+# handler just returned success having clicked nothing - the page never
+# advanced, and the run stalled on the exact same page forever until the
+# no-progress detector caught it. Deliberately kept separate from
+# _SUBMIT_BUTTON_WORDS below (a consent-accept click is an intermediate
+# navigation step within the flow, not a final "submit this application"
+# action) and only used for this same in-flow advancement search, not for
+# anything that would trigger a real SUBMITTED classification.
+_ADVANCE_BUTTON_WORDS = _NEXT_BUTTON_WORDS + ("accept", "agree", "i accept", "i agree")
 _SUBMIT_BUTTON_WORDS = ("submit", "apply", "send application", "finish")
 # Confirmed live against a real SmartRecruiters posting: its primary CTA is
 # "I'm Interested", not any word containing "apply" - _score_landing scored
@@ -97,6 +112,27 @@ el => {
 # elements), so a hidden ancestor above a small size is treated as a real
 # "this isn't the active page" signal instead of a widget-hiding detail.
 _MAX_TOLERATED_HIDDEN_WRAPPER_DESCENDANTS = 6
+
+# KNOWN GAP, NOT fixed here (confirmed live against a real Jobvite posting,
+# NinjaOne): its "Add Resume" widget's real <input type=file> sits inside a
+# `#attachmentDropdown` wrapper with 25 descendants (well above the
+# tolerance above, correctly, since this genuinely IS a hidden, currently-
+# inactive dropdown MENU - not a widget-hiding detail) - the file input
+# only becomes reachable after clicking a "Select" button, which reveals a
+# menu of upload-source choices ("My Computer" / Dropbox / Google Drive),
+# one of which must itself be clicked before the file input is truly
+# interactable. This is a materially different pattern from every
+# "click Select" file-upload variant confirmed so far this session (a
+# single-step reveal, not a two-step click-through-a-menu one), and
+# upload_document/_find_genuinely_present_file_inputs have no notion of
+# "click through a reveal menu first" - correctly refusing to guess at an
+# unfamiliar multi-step widget rather than attempting a fragile blind
+# click sequence, this surfaces as a required-field validation failure
+# ("Please provide this information.") blocking progression, not a false
+# success. Deliberately not attempted here - a real fix needs adapter
+# logic that recognizes and clicks through a menu-reveal step before
+# calling set_input_files, which no confirmed-live pattern so far has
+# actually required.
 
 _ANCESTORS_VISIBLE_JS = f"""
 el => {{
@@ -621,7 +657,12 @@ class GenericAdapter(ATSAdapter):
             before_url = page.url
             before_text = await page.text_content("body")
 
-            next_btn = await self._find_button_by_words(page, _NEXT_BUTTON_WORDS)
+            # _ADVANCE_BUTTON_WORDS, not just _NEXT_BUTTON_WORDS - this
+            # method's only caller (_handle_application_page) already
+            # checked existence with the broader list before calling here;
+            # searching with a narrower list here would just silently fail
+            # to find the same "I Accept"-worded control again.
+            next_btn = await self._find_button_by_words(page, _ADVANCE_BUTTON_WORDS)
             if next_btn is None:
                 return NavigationResult(success=False, page_number=1, url=page.url, error="No next/continue control found")
 
@@ -684,26 +725,58 @@ class GenericAdapter(ATSAdapter):
         )
 
     async def detect_confirmation(self, page: Page) -> ConfirmationResult:
-        """Generic confirmation detection"""
+        """Generic confirmation detection.
+
+        CRITICAL, confirmed live against a real Jobvite posting (NinjaOne):
+        this used to accumulate 0.3 confidence per matched keyword from a
+        list including bare "thank you" and bare "confirmation", with a
+        0.5 threshold - meaning ANY TWO of these generic, unrelated-prose-
+        friendly words appearing ANYWHERE in the page's visible text was
+        enough to report a full submission, with zero other corroborating
+        evidence (no check that a submit button was ever clicked, no check
+        that any application field was ever filled). A real NinjaOne
+        candidate consent page's privacy-policy legal text plainly
+        contains both - "Thank you for considering a job opportunity..."
+        and "...you may have received a confirmation email..." - and nei-
+        ther "I Accept" nor "I Decline" had even been clicked yet. This is
+        the exact class of bug this session already found and partially
+        fixed once before (see _visible_body_text's docstring, a real
+        Ashby posting whose hydration payload leaked equivalent generic
+        keywords) - that fix addressed one SOURCE of leaked text
+        (script/style content), not the underlying fragility of matching
+        generic, common-English words/short-phrases against an unbounded
+        block of genuinely visible but entirely unrelated prose (a job
+        description, a privacy policy, terms of service - any of which
+        can plausibly contain "thank you" or "confirmation" in ordinary,
+        non-submission-related sentences).
+
+        Fixed by replacing every generic keyword with a specific, multi-
+        word phrase a real confirmation page uses and essentially no
+        unrelated real-world document would ("thank you for applying",
+        not bare "thank you") - each phrase is now precise enough that a
+        single match is trusted outright, rather than needing several
+        weak signals to combine into a false positive.
+        """
         try:
             body_text = await self._visible_body_text(page)
             body_lower = body_text.lower()
 
-            confirmation_keywords = [
-                "thank you",
-                "submitted successfully",
-                "application received",
-                "confirmation",
-                "we'll be in touch",
+            confirmation_phrases = [
+                "thank you for applying",
+                "thank you for your application",
+                "thank you for submitting your application",
+                "your application has been submitted",
+                "your application was submitted",
+                "application submitted successfully",
+                "we have received your application",
+                "we've received your application",
+                "application received successfully",
+                "your application has been received",
             ]
 
-            confidence = 0.0
-            for keyword in confirmation_keywords:
-                if keyword in body_lower:
-                    confidence += 0.3
-
-            confidence = min(confidence, 1.0)
-            confirmed = confidence >= 0.5
+            matched = any(phrase in body_lower for phrase in confirmation_phrases)
+            confidence = 0.9 if matched else 0.0
+            confirmed = matched
 
             if confirmed:
                 logger.info(f"Detected possible confirmation page (confidence: {confidence})")
@@ -998,9 +1071,21 @@ class GenericAdapter(ATSAdapter):
         # supposed to attach that resume in the first place. Whether a file
         # input is present or already filled no longer matters here - what
         # matters is whether there are real, substantive fields to fill.
-        if s["non_file_field_count"] >= 2 and not s["has_password"]:
+        #
+        # Threshold is >= 1, not >= 2 - confirmed live on a real Jobvite
+        # posting (NinjaOne): a "Data Consent" interstitial between the
+        # landing page and the real application form has exactly ONE real
+        # field (a required "Location of Residence and Language" select
+        # gating an "I Accept"/"I Decline" panel that only renders after a
+        # choice is made). With a >= 2 gate this page scored 0 everywhere,
+        # fell to UNKNOWN, and the state machine's own fallback-to-last-
+        # confident-state logic retried _handle_landing (searching for an
+        # "Apply"-worded button that doesn't exist on this page) - failing
+        # with a misleading "No Apply button found" instead of ever
+        # attempting to fill the one real field that was right there.
+        if s["non_file_field_count"] >= 1 and not s["has_password"]:
             score += 0.4
-        if any(w in s["url"] for w in ("application", "apply-form")):
+        if any(w in s["url"] for w in ("application", "apply-form", "apply")):
             score += 0.1
         if any(w in b for b in s["buttons"] for w in _NEXT_BUTTON_WORDS):
             score += 0.3
@@ -1412,7 +1497,7 @@ class GenericAdapter(ATSAdapter):
         # Fields are filled either way; let detect_state re-classify
         # (likely SUBMIT_READY) rather than treating "nothing to click"
         # as a failure.
-        next_btn = await self._find_button_by_words(page, _NEXT_BUTTON_WORDS)
+        next_btn = await self._find_button_by_words(page, _ADVANCE_BUTTON_WORDS)
         if next_btn is None:
             return StateHandlerResult(success=True)
 

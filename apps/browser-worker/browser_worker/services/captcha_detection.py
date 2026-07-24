@@ -24,6 +24,21 @@ application regardless of whether a human was ever needed. Instead this
 checks for the actual interactive widget container/iframe, which the
 vendor only renders when an explicit (usually v2-style) checkbox or
 challenge is being presented.
+
+That "invisible v3 badge" exclusion was stated as design intent here but
+not actually implemented correctly for reCAPTCHA specifically - confirmed
+live against a real Jobvite posting (NinjaOne): its candidate application
+form legitimately embeds an invisible v3 badge (`iframe[title='reCAPTCHA']`,
+256x60, `src` containing `size=invisible`) that scores traffic silently
+and never presents a challenge, exactly the case this module says it
+shouldn't trigger on - but the old selector, `iframe[title='reCAPTCHA']:
+visible` alone, matched it anyway (a 256x60 iframe IS Playwright-:visible
+- "invisible" in reCAPTCHA's own vocabulary means "doesn't ever present an
+interactive challenge to the user," not "has zero size/CSS visibility").
+The genuine, confirmed-live interactive v2 checkbox (a real BambooHR
+posting) has the same `title='reCAPTCHA'` but a distinctly different
+size (304x78, not 256x60) and `size=normal` (not `size=invisible`) in its
+own iframe `src`, which is what the selector below now actually checks.
 """
 import logging
 
@@ -35,7 +50,7 @@ _CAPTCHA_CHALLENGE_SELECTORS = (
     "div.g-recaptcha[data-sitekey]:visible",
     "div.h-captcha[data-sitekey]:visible",
     "div.cf-turnstile[data-sitekey]:visible",
-    "iframe[title='reCAPTCHA']:visible",
+    "iframe[title='reCAPTCHA']:visible:not([src*='size=invisible'])",
     "iframe[title*='hCaptcha' i]:visible",
     "iframe[src*='hcaptcha.com']:visible",
     "iframe[src*='challenges.cloudflare.com']:visible",

@@ -1,6 +1,8 @@
 """Tests for the application question agent, reusable-answer matching, and experience calculator."""
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from uuid import uuid4
 
@@ -174,3 +176,50 @@ class TestApplicationQuestionAgent:
         assert result["source"] == "exact_approved"
         assert result["approved"] is True
         assert result["needs_user_input"] is False
+
+    @pytest.mark.asyncio
+    async def test_ai_generated_refusal_text_is_not_used_as_literal_answer(self):
+        """CRITICAL, confirmed live against a real Jobvite posting
+        (NinjaOne): the AI-generated path's own prompt tells the model to
+        say so when the facts don't cover the question - the model
+        followed that instruction correctly ("The provided facts do not
+        include any information about a city."), but that prose then got
+        typed straight into the real "City" field on a live application as
+        if it were a genuine answer. A response indicating the model
+        couldn't actually answer must escalate to needs_user_input, not be
+        returned as a usable value."""
+        with patch(
+            "app.ai_gateway.gateway.AIGateway.generate_text",
+            new=AsyncMock(return_value="The provided facts do not include any information about a city."),
+        ):
+            agent = ApplicationQuestionAgent()
+            result = await agent.generate_answer(
+                question_text="What city do you live in?",
+                question_type="personal_info",
+                risk_level="medium",
+                profile_facts=[],
+                reusable_answers=[],
+                user_id=str(uuid4()),
+            )
+        assert result["needs_user_input"] is True
+        assert result["answer_text"] == ""
+
+    @pytest.mark.asyncio
+    async def test_ai_generated_real_answer_is_still_used(self):
+        """The fix must not swallow genuine answers - only ones that
+        actually indicate the model couldn't answer."""
+        with patch(
+            "app.ai_gateway.gateway.AIGateway.generate_text",
+            new=AsyncMock(return_value="San Francisco, California"),
+        ):
+            agent = ApplicationQuestionAgent()
+            result = await agent.generate_answer(
+                question_text="What city do you live in?",
+                question_type="personal_info",
+                risk_level="medium",
+                profile_facts=[],
+                reusable_answers=[],
+                user_id=str(uuid4()),
+            )
+        assert result["needs_user_input"] is False
+        assert result["answer_text"] == "San Francisco, California"

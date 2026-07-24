@@ -45,6 +45,19 @@ class TestInteractiveChallengesDetected:
         assert await _detected_for(html) is True
 
     @pytest.mark.asyncio
+    async def test_recaptcha_v2_checkbox_size_normal_detected(self):
+        """Confirmed live against a real BambooHR posting: the genuine
+        interactive checkbox's own src URL contains `size=normal` (and
+        the widget renders at 304x78px) - this is the shape that must
+        keep triggering detection even after excluding size=invisible
+        below."""
+        html = (
+            '<iframe title="reCAPTCHA" style="width:304px;height:78px;" '
+            'src="https://www.google.com/recaptcha/api2/anchor?size=normal&k=abc123"></iframe>'
+        )
+        assert await _detected_for(html) is True
+
+    @pytest.mark.asyncio
     async def test_cloudflare_turnstile_detected(self):
         html = '<div class="cf-turnstile" data-sitekey="abc123" style="width:300px;height:65px;"></div>'
         assert await _detected_for(html) is True
@@ -76,4 +89,22 @@ class TestInvisibleV3NotTriggered:
     @pytest.mark.asyncio
     async def test_display_none_container_not_detected(self):
         html = '<div class="g-recaptcha" data-sitekey="abc123" style="display:none;"></div>'
+        assert await _detected_for(html) is False
+
+    @pytest.mark.asyncio
+    async def test_recaptcha_v3_invisible_badge_not_detected(self):
+        """CRITICAL, confirmed live against a real Jobvite posting
+        (NinjaOne): its candidate application form legitimately embeds
+        this exact badge (title='reCAPTCHA', 256x60px, src containing
+        size=invisible) - it scores traffic silently and never presents a
+        challenge to a real user, yet the old selector (`iframe[title=
+        'reCAPTCHA']:visible` with no further distinction) matched it
+        anyway, since a 256x60 iframe genuinely IS Playwright-:visible -
+        "invisible" is reCAPTCHA's own vocabulary for "never presents an
+        interactive challenge," not "has zero CSS size." Wrongly paused
+        an application that had no real CAPTCHA blocking it at all."""
+        html = (
+            '<iframe title="reCAPTCHA" style="width:256px;height:60px;" '
+            'src="https://www.recaptcha.net/recaptcha/api2/anchor?size=invisible&k=abc123"></iframe>'
+        )
         assert await _detected_for(html) is False
