@@ -59,13 +59,21 @@ browser. Dense index, not a tutorial - follow the links.
 - Chrome runs as a systemd **user** service (`hermes-chrome`) on Xvfb display
   `:99`, auto-restarts on crash/boot, flags:
   `--remote-debugging-port=9222 --remote-allow-origins=* --user-data-dir=/home/hermes/.hermes/chrome-profile --no-sandbox`.
+  Despite `--remote-allow-origins=*`, the port still binds to **127.0.0.1 only**
+  (Chrome ignores `--remote-debugging-address=0.0.0.0` in this version). Docker
+  containers on custom bridge networks cannot reach 127.0.0.1:9222. A
+  **cdp-bridge** systemd service (`hermes-cdp-bridge`) runs a Python TCP proxy
+  on `0.0.0.0:9223 → 127.0.0.1:9222`, giving Docker containers access without
+  exposing the CDP port beyond the host. The bridge is NOT needed when
+  browser-worker uses host networking (it reaches localhost:9222 directly), but
+  it IS needed if browser-worker runs on a Docker bridge network (the default).
 - browser-worker is expected to run **on Hermes itself** (same VPS as Chrome) -
-  no network tunnel needed. Everything on Hermes today runs as systemd user
-  services, not docker-compose; if browser-worker is deployed there via this
-  repo's docker-compose flow instead, reach Chrome via `host.docker.internal:9222`
-  (wired in `docker-compose.yml`'s browser-worker service - see below). Which of
-  the two (bare systemd vs. dockerized) Hermes deployment actually uses is still
-  an open call - the code works either way.
+  no network tunnel needed. It currently uses `network_mode: host` to reach
+  Chrome at `localhost:9223` (via the cdp-bridge) and the API/DB/MinIO at their
+  host-mapped ports. This means browser-worker's env vars use localhost/127.0.0.1
+  for everything — DATABASE_URL at 127.0.0.1:5432, API_URL at 127.0.0.1:8001,
+  MINIO_ENDPOINT at localhost:9000. The other services (api, web, job-worker)
+  remain on the Docker bridge network and use Docker DNS hostnames normally.
 - The CDP websocket URL (`ws://.../devtools/browser/<uuid>`) changes every Chrome
   restart. Proven by a committed regression test - not just asserted -
   that pointing `connect_over_cdp` at the plain `http://host:port` base
@@ -144,7 +152,23 @@ The pause/resume API a future agent would call instead of a human:
 `start-browser`, `browser-status`, `approve-submit`, `resume-manual-intervention`,
 `answer-pending-question`, `cancel-browser`, `replay`.
 
-## Not yet done
+## Hermes-specific config (not in this repo)
+
+These live on the Hermes VPS outside the git repo and must be set up manually:
+
+- **`hermes-cdp-bridge.service`** — systemd user service at
+  `~/.config/systemd/user/hermes-cdp-bridge.service`. Runs a Python TCP proxy
+  (`~/.hermes/cdp_bridge.py`) forwarding `0.0.0.0:9223 → 127.0.0.1:9222`.
+  Enable with: `systemctl --user enable --now hermes-cdp-bridge`.
+- **`hermes-chrome.service`** — systemd user service (the persistent Chrome).
+  Already documented above.
+- **Manual-intervention cron** — a Hermes no-agent cron job running
+  `hermes/poll_paused_apps.py` every 5 minutes, registered via Hermes' internal
+  cron system (not a systemd timer). Requires `TELEGRAM_BOT_TOKEN` and
+  `TELEGRAM_CHAT_ID` in Hermes' environment to deliver alerts.
+- **`.env` file** — contains secrets (`SECRET_KEY`, `INTERNAL_API_KEY`,
+  `BROWSER_CDP_URL=http://localhost:9223`) that are locally configured on Hermes
+  and not committed. Copy `.env.example` and fill in the blanks.
 
 - Auth model: [`ats_credential_vault.py`](./backend/app/services/ats_credential_vault.py) +
   [`credential_vault_client.py`](./apps/browser-worker/browser_worker/services/credential_vault_client.py) +
