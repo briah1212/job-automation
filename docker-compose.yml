@@ -157,6 +157,12 @@ services:
       AI_PROVIDER: ${AI_PROVIDER:-mock}
       PYTHONPATH: /backend
       HEADLESS: ${HEADLESS:-true}
+      # Unset by default: BrowserWorker launches a fresh local throwaway
+      # browser per run, exactly as before this existed. Set to a
+      # privately-tunneled ws:// CDP endpoint (never a bare public
+      # host:port) to instead drive a persistent, already-authenticated
+      # remote Chrome instance - see BrowserWorker._acquire_browser_and_context.
+      BROWSER_CDP_URL: ${BROWSER_CDP_URL:-}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env - see .env.example}
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}

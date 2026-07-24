@@ -81,15 +81,23 @@ class BrowserWorker:
         assisted_mode: bool = True,
         db=None,
         browser_session_id: Optional[uuid.UUID] = None,
+        cdp_url: Optional[str] = None,
     ):
         """db/browser_session_id enable durable (Postgres+MinIO) checkpointing.
 
         Left as None for worker.py's standalone host-based demo entrypoint
         (run_demo.sh), which has no database - CheckpointManager falls back
         to local files in that case. queue_worker.py always supplies both.
+
+        cdp_url: when set, connects to a persistent, already-authenticated
+        remote Chrome instance (e.g. a VPS with a real, logged-in browser
+        profile) over the Chrome DevTools Protocol instead of launching a
+        fresh throwaway local browser. See _acquire_browser_and_context for
+        what this changes.
         """
         self.headless = headless
         self.assisted_mode = assisted_mode
+        self.cdp_url = cdp_url
         self.checkpoint_manager = CheckpointManager(checkpoint_dir, db=db, browser_session_id=browser_session_id)
         self.field_mapper = FieldMapper()
         self.form_inspector = FormInspector()
@@ -143,6 +151,42 @@ class BrowserWorker:
         except PlaywrightTimeoutError:
             logger.warning(f"networkidle wait timed out navigating to {url} - proceeding anyway (page likely still usable)")
 
+    async def _acquire_browser_and_context(
+        self, p, storage_state: Optional[dict] = None
+    ) -> tuple[Browser, BrowserContext, bool]:
+        """Returns (browser, context, owns_context).
+
+        owns_context=True (default, local mode): a throwaway browser+context
+        was just launched for this run alone - the caller is responsible for
+        closing both when done, same as before this method existed.
+
+        owns_context=False (cdp_url set): connected to a persistent, already
+        logged-in remote Chrome instance via connect_over_cdp. The caller
+        must close only the page/tab it opens - never this context or
+        browser, since other concurrent tasks (and the user's own real
+        browsing session) share them. Reuses the connection's existing
+        context (real cookies, real Gmail/GitHub login) rather than creating
+        an isolated one - a fresh context on the same browser process would
+        still be a cookie-less identity and defeat the entire point of
+        connecting to a persistent profile instead of launching locally.
+        """
+        if self.cdp_url:
+            browser = await p.chromium.connect_over_cdp(self.cdp_url)
+            context = (
+                browser.contexts[0]
+                if browser.contexts
+                else await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=_USER_AGENT)
+            )
+            return browser, context, False
+
+        browser = await p.chromium.launch(headless=self.headless)
+        context_kwargs = {"viewport": {"width": 1280, "height": 720}, "user_agent": _USER_AGENT}
+        if storage_state:
+            context_kwargs["storage_state"] = storage_state
+            logger.info("Restoring browser session state from a prior run")
+        context = await browser.new_context(**context_kwargs)
+        return browser, context, True
+
     async def _persist_storage_state(self, context: BrowserContext, ctx: RunContext) -> None:
         """Capture cookies/localStorage before the context closes, so a
         later resume() can restore real session state instead of always
@@ -159,14 +203,10 @@ class BrowserWorker:
     async def run(self, ctx: RunContext) -> dict:
         """Fresh start: navigate to ctx.application_url and run from LANDING."""
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=self.headless)
+            browser, context, owns_context = await self._acquire_browser_and_context(p)
             try:
-                context = await browser.new_context(
-                    viewport={"width": 1280, "height": 720},
-                    user_agent=_USER_AGENT,
-                )
+                page = await context.new_page()
                 try:
-                    page = await context.new_page()
                     logger.info(f"Navigating to {ctx.application_url}")
                     await self._navigate(page, ctx.application_url)
                     await dismiss_cookie_consent(page)
@@ -174,10 +214,14 @@ class BrowserWorker:
                     logger.info(f"Using adapter: {adapter.get_name()}")
                     return await self._run_state_machine_with_timeout(page, adapter, ctx)
                 finally:
-                    await self._persist_storage_state(context, ctx)
-                    await context.close()
+                    if owns_context:
+                        await self._persist_storage_state(context, ctx)
+                    await page.close()
+                    if owns_context:
+                        await context.close()
             finally:
-                await browser.close()
+                if owns_context:
+                    await browser.close()
 
     async def resume(self, ctx: RunContext, approved_for_submit: bool = False) -> dict:
         """Resume a paused session.
@@ -202,18 +246,17 @@ class BrowserWorker:
         # live verification run: replay tried to fill fields on a page that
         # was still showing LANDING because navigation used application_url.
         navigate_url = checkpoint.url if checkpoint else ctx.application_url
-        storage_state = self.checkpoint_manager.load_storage_state(ctx.session_id)
+        # Storage-state save/restore is a local-mode concept only - in CDP
+        # mode the connection's own context already IS the persistent
+        # session (real cookies, real logins), so there's no separate state
+        # to capture or replay across a relaunch that never happens.
+        storage_state = None if self.cdp_url else self.checkpoint_manager.load_storage_state(ctx.session_id)
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=self.headless)
+            browser, context, owns_context = await self._acquire_browser_and_context(p, storage_state=storage_state)
             try:
-                context_kwargs = {"viewport": {"width": 1280, "height": 720}, "user_agent": _USER_AGENT}
-                if storage_state:
-                    context_kwargs["storage_state"] = storage_state
-                    logger.info("Restoring browser session state from a prior run")
-                context = await browser.new_context(**context_kwargs)
+                page = await context.new_page()
                 try:
-                    page = await context.new_page()
                     await self._navigate(page, navigate_url)
                     await dismiss_cookie_consent(page)
                     adapter = await self._detect_adapter(page)
@@ -237,10 +280,14 @@ class BrowserWorker:
 
                     return await self._run_state_machine_with_timeout(page, adapter, ctx)
                 finally:
-                    await self._persist_storage_state(context, ctx)
-                    await context.close()
+                    if owns_context:
+                        await self._persist_storage_state(context, ctx)
+                    await page.close()
+                    if owns_context:
+                        await context.close()
             finally:
-                await browser.close()
+                if owns_context:
+                    await browser.close()
 
     async def _run_state_machine_with_timeout(self, page: Page, adapter, ctx: RunContext) -> dict:
         """Hard backstop around run_state_machine - see _HARD_TIMEOUT_SECONDS."""

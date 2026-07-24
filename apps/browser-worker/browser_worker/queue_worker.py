@@ -229,7 +229,13 @@ async def _run_task(task: WorkflowTask, db: Session) -> None:
     session_id = f"app_{application.id}"
     browser_session = _get_or_create_browser_session(db, application, task, session_id)
     headless = os.environ.get("HEADLESS", "true").strip().lower() != "false"
-    worker = BrowserWorker(headless=headless, db=db, browser_session_id=browser_session.id)
+    # See BrowserWorker.__init__/_acquire_browser_and_context - unset (the
+    # default) keeps the existing local-throwaway-browser behavior exactly
+    # as before; set only once a real persistent remote Chrome instance
+    # (e.g. a VPS) is reachable and its CDP debug port is tunneled
+    # privately, never exposed directly to the public internet.
+    cdp_url = os.environ.get("BROWSER_CDP_URL", "").strip() or None
+    worker = BrowserWorker(headless=headless, db=db, browser_session_id=browser_session.id, cdp_url=cdp_url)
 
     ctx = worker.make_context(
         session_id=session_id,
