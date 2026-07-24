@@ -27,6 +27,27 @@ _SUBMIT_BUTTON_WORDS = ("submit", "apply", "send application", "finish")
 # it too low to ever cross the detect_state confidence floor, so the run
 # paused as "unsupported_flow" before a single click happened.
 _APPLY_BUTTON_WORDS = ("apply now", "apply", "i'm interested")
+# Confirmed live against a real Taleo posting (Costco): the second
+# password field's own `name`/`id` attributes are "cwsPassword_2" (no
+# relation to "confirm") and its visible label is "Re-type new password:"
+# - matching neither the word "confirm" nor even appearing as a `name`.
+# Checked against both a field's `name` AND its resolved `label`, and
+# against several common real-world phrasings, not just "confirm" - a
+# missed confirm-field left it permanently unfilled (fill_field/
+# _handle_login only ever fill primary_password_field and confirm_field
+# explicitly, nothing else), which client-side validation then silently
+# blocked forever: the "next" click never actually failed or errored, it
+# just never advanced, indistinguishable from a submit-control-not-found
+# case without inspecting a live screenshot.
+_CONFIRM_PASSWORD_KEYWORDS = ("confirm", "retype", "re-type", "re type", "verify", "repeat")
+# Confirmed live against a real Taleo posting (Costco): its actual login
+# button text is the single word "Login" - every login/signup-detection
+# word list in this file previously only checked "log in" (WITH a space),
+# so `"log in" in "login"` is False and every one of them silently missed
+# it, real button plainly visible in a live screenshot notwithstanding.
+# "Sign In"/"Signin" carries the identical risk, included for the same
+# reason even though not yet confirmed live on a specific site.
+_LOGIN_WORDS = ("log in", "login", "sign in", "signin")
 
 # Fallback label lookup for forms that associate a label with its field
 # through DOM position rather than a semantic <label for="..."> - e.g.
@@ -876,7 +897,7 @@ class GenericAdapter(ATSAdapter):
 
     def _score_apply(self, s: dict) -> float:
         score = 0.0
-        has_login_btn = any(w in b for b in s["buttons"] for w in ("log in", "sign in"))
+        has_login_btn = any(w in b for b in s["buttons"] for w in _LOGIN_WORDS)
         has_signup_btn = any(w in b for b in s["buttons"] for w in ("create account", "sign up", "register"))
         if has_login_btn and has_signup_btn:
             score += 0.7
@@ -892,7 +913,7 @@ class GenericAdapter(ATSAdapter):
             score += 0.2
         if any(w in h for h in s["headings"] for w in ("log in", "login", "sign in")):
             score += 0.2
-        if any(w in b for b in s["buttons"] for w in ("log in", "sign in")):
+        if any(w in b for b in s["buttons"] for w in _LOGIN_WORDS):
             score += 0.1
         return min(score, 1.0)
 
@@ -1179,7 +1200,7 @@ class GenericAdapter(ATSAdapter):
         if error:
             return error
 
-        words = ("create account", "sign up", "register") if ctx.credential["created"] else ("log in", "sign in")
+        words = ("create account", "sign up", "register") if ctx.credential["created"] else _LOGIN_WORDS
         btn = await self._find_button_by_words(page, words)
         if not btn:
             return StateHandlerResult(success=False, error="Could not find login/signup entry point")
@@ -1193,7 +1214,13 @@ class GenericAdapter(ATSAdapter):
 
         form = await self.inspect_form(page)
         password_fields = [f for f in form.fields if f.input_type == "password"]
-        confirm_field = next((f for f in password_fields if "confirm" in f.name.lower()), None)
+        confirm_field = next(
+            (
+                f for f in password_fields
+                if any(kw in f.name.lower() or kw in (f.label or "").lower() for kw in _CONFIRM_PASSWORD_KEYWORDS)
+            ),
+            None,
+        )
         primary_password_field = next((f for f in password_fields if f is not confirm_field), None)
         email_field = next((f for f in form.fields if f.input_type == "email" or "email" in f.name.lower()), None)
 
@@ -1239,8 +1266,8 @@ class GenericAdapter(ATSAdapter):
         # wrong one for a brand-new account fails validation (no such
         # account exists yet) and just re-renders the same page forever.
         form_element = await self._find_visible_form(page)
-        opposite_intent_words = ("log in", "sign in") if ctx.credential["created"] else ("create account", "sign up", "register")
-        preferred_words = ("create account", "sign up", "register") if ctx.credential["created"] else ("log in", "sign in")
+        opposite_intent_words = _LOGIN_WORDS if ctx.credential["created"] else ("create account", "sign up", "register")
+        preferred_words = ("create account", "sign up", "register") if ctx.credential["created"] else _LOGIN_WORDS
         submit_btn = await self._find_button_by_words(page, preferred_words, scope=form_element)
         if not submit_btn:
             submit_btn = await self._find_button_by_words(page, _SUBMIT_BUTTON_WORDS, scope=form_element)
@@ -1262,6 +1289,21 @@ class GenericAdapter(ATSAdapter):
             # login/register-worded at all - the same control every other
             # multi-page handler in this file already falls back to.
             submit_btn = await self._find_button_by_words(page, _NEXT_BUTTON_WORDS, scope=form_element)
+        if not submit_btn:
+            # Confirmed live against a real Taleo posting (Costco): the
+            # page's "next" control is a plain <a> SIBLING of the <form>
+            # element, not a descendant of it - every attempt above,
+            # scoped to form_element, necessarily finds nothing regardless
+            # of wording. Unlike the login/signup-worded tiers above (whose
+            # scoping exists specifically to avoid matching an unrelated
+            # header "Log in" nav link - see the comment at form_element's
+            # definition), an unscoped page-wide search for
+            # _NEXT_BUTTON_WORDS carries much lower collision risk: "next"/
+            # "continue"/"proceed" aren't persistent-header vocabulary the
+            # way "log in"/"sign in" are. Tried last, only once every
+            # scoped attempt (including the scoped _NEXT_BUTTON_WORDS
+            # attempt just above) has already failed.
+            submit_btn = await self._find_button_by_words(page, _NEXT_BUTTON_WORDS)
         if not submit_btn:
             return StateHandlerResult(success=False, error="No submit control found on credential form")
         await submit_btn.click()
