@@ -129,3 +129,51 @@ async def test_run_in_cdp_mode_leaves_the_persistent_browser_running_afterward()
             assert len(reconnected.contexts) >= 1
         finally:
             await persistent_browser.close()
+
+
+@pytest.mark.asyncio
+async def test_cdp_url_survives_a_chrome_restart_when_using_the_http_base_form():
+    """Regression test for a real finding, documented in HERMES.md: a real
+    Chrome DevTools Protocol websocket URL
+    (ws://.../devtools/browser/<uuid>) embeds a uuid that's minted fresh on
+    every Chrome process start, so a BROWSER_CDP_URL hardcoded to that form
+    goes stale the moment Hermes's Chrome restarts (systemd auto-restarts
+    it on crash/boot - see HERMES.md's "Hermes facts").
+
+    Proves the fix: pointing connect_over_cdp at the plain http://host:port
+    BASE (no uuid in it at all) instead keeps working across a full Chrome
+    process restart with the exact same literal URL, because Playwright
+    re-resolves the current websocket endpoint from that base on every
+    connection. This is what BrowserWorker(cdp_url=...) is documented to
+    require - see .env.example's BROWSER_CDP_URL comment.
+
+    Two independent real Chromium processes on the same port (the second
+    only started after the first is fully closed) stand in for "Chrome
+    restarted" - no mocks. Each real Chrome process mints its own internal
+    uuid on launch (this is exactly the mechanism that makes a hardcoded
+    ws://.../devtools/browser/<uuid> URL go stale), so successfully
+    connecting and using the browser the second time, via the identical
+    literal cdp_base string used the first time, is direct proof that the
+    http:// base form needs no update across a restart.
+    """
+    cdp_base = f"http://localhost:{_CDP_PORT + 2}"
+    async with async_playwright() as p:
+        first_chrome = await p.chromium.launch(
+            headless=True, args=[f"--remote-debugging-port={_CDP_PORT + 2}"]
+        )
+        await p.chromium.connect_over_cdp(cdp_base)
+        await first_chrome.close()
+
+        second_chrome = await p.chromium.launch(
+            headless=True, args=[f"--remote-debugging-port={_CDP_PORT + 2}"]
+        )
+        try:
+            # Same literal cdp_base as above - no code/config change between
+            # "restarts", exactly what a fixed BROWSER_CDP_URL env var means.
+            second_connection = await p.chromium.connect_over_cdp(cdp_base)
+            context = second_connection.contexts[0] if second_connection.contexts else await second_connection.new_context()
+            page = await context.new_page()
+            await page.goto(MOCK_ATS_URL)
+            assert await page.title() is not None
+        finally:
+            await second_chrome.close()

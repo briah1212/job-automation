@@ -30,11 +30,13 @@ browser. Dense index, not a tutorial - follow the links.
   the two (bare systemd vs. dockerized) Hermes deployment actually uses is still
   an open call - the code works either way.
 - The CDP websocket URL (`ws://.../devtools/browser/<uuid>`) changes every Chrome
-  restart. Confirmed live (see `worker.py`'s CDP tests + a manual restart
-  reproduction) that pointing `connect_over_cdp` at the plain `http://host:port`
-  base instead avoids this entirely - Playwright re-resolves the current
-  websocket endpoint on every connection. **Always use the http:// form, never
-  a hardcoded ws://.../devtools/browser/<uuid>.**
+  restart. Proven by a committed regression test - not just asserted -
+  that pointing `connect_over_cdp` at the plain `http://host:port` base
+  instead avoids this entirely: Playwright re-resolves the current
+  websocket endpoint on every connection, even across a full Chrome process
+  restart using the identical literal URL. See
+  [`test_worker_cdp_connection.py::test_cdp_url_survives_a_chrome_restart_when_using_the_http_base_form`](./apps/browser-worker/tests/test_worker_cdp_connection.py).
+  **Always use the http:// form, never a hardcoded ws://.../devtools/browser/<uuid>.**
 - No mechanism answers a manual-intervention pause yet. Leading option (not
   built): a cron job on Hermes polling `browser-status` and alerting over
   Telegram, with a human resolving it via SSH/VNC - simpler than a live
@@ -81,8 +83,9 @@ browser. Dense index, not a tutorial - follow the links.
   other tasks or the user's own browsing depend on) is at
   [`worker.py:282-290`](./apps/browser-worker/browser_worker/worker.py#L282-L290).
 - [`test_worker_cdp_connection.py`](./apps/browser-worker/tests/test_worker_cdp_connection.py) -
-  real-Chromium (no mocks) proof of the connect/reuse/non-close contract; explains
-  a Playwright cross-client cookie-cache quirk encountered while writing it.
+  real-Chromium (no mocks) proof of the connect/reuse/non-close contract and of
+  http://-base restart-survival (see "Hermes facts"); explains a Playwright
+  cross-client cookie-cache quirk encountered while writing it.
 - `render_server.py` (job-posting text extraction) deliberately **not** wired to
   CDP/Hermes - stateless anonymous fetches, no benefit from a real logged-in
   identity, and mixing real cookies into it would be pure downside. See its
