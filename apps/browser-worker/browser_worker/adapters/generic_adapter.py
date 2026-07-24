@@ -36,12 +36,29 @@ _NEXT_BUTTON_WORDS = ("next", "continue", "proceed")
 # action) and only used for this same in-flow advancement search, not for
 # anything that would trigger a real SUBMITTED classification.
 _ADVANCE_BUTTON_WORDS = _NEXT_BUTTON_WORDS + ("accept", "agree", "i accept", "i agree")
-_SUBMIT_BUTTON_WORDS = ("submit", "apply", "send application", "finish")
+# "senden" confirmed live against the same real Recruitee posting (TYTAN
+# Technologies) that motivated _APPLY_BUTTON_WORDS' "bewerben" addition -
+# its real application form's submit button reads "Senden" (German for
+# "Send"/"Submit"), not any English word. Without it, _score_application's
+# "genuine submit button alongside unfilled fields" bonus never fired,
+# leaving the score at exactly 0.4 (non_file_field_count alone) - just
+# under detect_state's 0.5 floor. Same broader known i18n gap as
+# _APPLY_BUTTON_WORDS' comment describes; only this one confirmed-live word
+# added here, not a general translation pass.
+_SUBMIT_BUTTON_WORDS = ("submit", "apply", "send application", "finish", "senden")
 # Confirmed live against a real SmartRecruiters posting: its primary CTA is
 # "I'm Interested", not any word containing "apply" - _score_landing scored
 # it too low to ever cross the detect_state confidence floor, so the run
 # paused as "unsupported_flow" before a single click happened.
-_APPLY_BUTTON_WORDS = ("apply now", "apply", "i'm interested")
+#
+# "bewerben" confirmed live against a real Recruitee posting (TYTAN
+# Technologies, a German company whose career site defaults to German) -
+# its only Apply CTA is "Bewerben", German for "Apply". This whole file's
+# word-matching is English-only throughout (every _..._WORDS constant) -
+# a real, broader known gap (full internationalization would need every
+# such list translated, not just this one word for this one language),
+# not attempted here beyond this single confirmed-live case.
+_APPLY_BUTTON_WORDS = ("apply now", "apply", "i'm interested", "bewerben")
 # Confirmed live against a real Taleo posting (Costco): the second
 # password field's own `name`/`id` attributes are "cwsPassword_2" (no
 # relation to "confirm") and its visible label is "Re-type new password:"
@@ -547,6 +564,9 @@ class GenericAdapter(ATSAdapter):
                 await page.select_option(selector, label=value)
             elif field.input_type == "textarea":
                 await page.fill(selector, value)
+                error = await self._verify_fill_took_effect(page, selector, value, field.name)
+                if error:
+                    return error
             elif field.input_type == "checkbox":
                 if str(value).strip().lower() in ("true", "1", "yes", "on"):
                     await page.check(selector)
@@ -579,6 +599,9 @@ class GenericAdapter(ATSAdapter):
                     return FillResult(success=False, field=field.name, error=f"No radio option matching {value!r}")
             else:
                 await page.fill(selector, value)
+                error = await self._verify_fill_took_effect(page, selector, value, field.name)
+                if error:
+                    return error
 
             logger.info(f"Filled field {field.name}")
             return FillResult(success=True, field=field.name, value=value)
@@ -586,6 +609,70 @@ class GenericAdapter(ATSAdapter):
         except Exception as e:
             logger.error(f"Error filling field {field.name}: {e}")
             return FillResult(success=False, field=field.name, error=str(e))
+
+    # KNOWN GAP, NOT fixed here: _verify_fill_took_effect below only catches
+    # a field ending up EMPTY, not a field ending up NON-empty but WRONG.
+    # Confirmed live against the same real Recruitee posting (TYTAN
+    # Technologies) that motivated that check: its phone field is a custom
+    # live-formatting widget, not a plain <input type=tel> - it starts
+    # pre-filled with a country-code default ("+49", the site's German
+    # locale) and re-parses a country code from whatever's typed as it's
+    # typed. Filling Brian's real US number "646-236-7795" over that
+    # default produced "+64 6 236 7795" (New Zealand) - the widget's live
+    # parser matched "64" out of the "646" area code as a country-code
+    # candidate before "646" could ever be read as a single area-code
+    # unit, splitting it into a wrong country prefix plus a stray leading
+    # digit. Reproduced via plain browser interaction (not a Playwright-
+    # automation-specific quirk), and confirmed this is genuinely how a
+    # real Recruitee phone field behaves for any NANP number sharing
+    # digits with an existing country code. A general fix needs actual
+    # phone-number verification (does the resulting value's digits still
+    # correspond to the intended number, independent of formatting/country
+    # prefix) - not attempted here, since a naive version risks false-
+    # positive-flagging legitimately-different-but-correct formatting
+    # (e.g. a site normalizing "646-236-7795" to "+1 646 236 7795").
+    @staticmethod
+    async def _verify_fill_took_effect(page: Page, selector: str, intended_value: str, field_name: str) -> Optional[FillResult]:
+        """page.fill() raises on a genuinely disabled/detached element, but
+        NOT when a native input's own type constraint (type=number,
+        type=date, ...) rejects text that doesn't match its expected
+        format - the browser just silently leaves the field empty, no
+        exception, no console error, nothing. Confirmed live against a
+        real Recruitee posting: a "What is your salary expectation?"
+        question rendered as <input type="number">, and an entirely
+        reasonable free-text answer ("Negotiable, based on role scope and
+        total compensation") silently produced an empty required field -
+        fill_field reported success, ctx.filled_fields recorded it as
+        done, and the run moved on genuinely believing a required field
+        was filled when it was blank. The same failure mode hit a
+        type="date" field asked in free text ("Immediately") moments
+        later on the same form. Reading the value back and comparing
+        against what was intended turns this from a silent, invisible gap
+        into an honest FillResult failure - the field stays correctly
+        marked unfilled, so has_unfilled_visible_field keeps blocking
+        SUBMIT_READY, and the run eventually escalates for a human to
+        provide a format the input will actually accept, rather than
+        silently reporting a required field as done when it never
+        received a value at all."""
+        if not intended_value.strip():
+            return None
+        try:
+            actual_value = await page.input_value(selector)
+        except Exception:
+            # Not every element input_value() supports (e.g. contenteditable)
+            # raises here - best-effort verification only, not required for
+            # every possible field shape this adapter's generic path meets.
+            return None
+        if actual_value.strip():
+            return None
+        return FillResult(
+            success=False,
+            field=field_name,
+            error=(
+                f"page.fill() reported success but the field is still empty - the input's own "
+                f"format constraint (e.g. type=number, type=date) likely rejected {intended_value!r}"
+            ),
+        )
 
     async def upload_document(
         self, page: Page, field: FormField, file_path: str
@@ -1142,7 +1229,13 @@ class GenericAdapter(ATSAdapter):
         # this check had no such gate: a fully-filled form and a
         # already-filled-then-checked-consent form both misclassified back
         # to APPLICATION instead of staying SUBMIT_READY).
-        if s["has_unfilled_visible_field"] and any("submit" in b for b in s["buttons"]):
+        # Uses _SUBMIT_BUTTON_WORDS, not a hardcoded "submit" substring -
+        # confirmed live against the same real Recruitee posting that
+        # motivated _SUBMIT_BUTTON_WORDS' "senden" addition: this check
+        # used to hardcode "submit" independently of that constant, so
+        # adding "senden" there alone didn't fix this bonus at all - the
+        # score stayed at exactly 0.4 even after that fix deployed.
+        if s["has_unfilled_visible_field"] and any(w in b for b in s["buttons"] for w in _SUBMIT_BUTTON_WORDS):
             score += 0.2
         return min(score, 1.0)
 

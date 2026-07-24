@@ -87,14 +87,31 @@ def _strip_html(raw_html: str) -> str:
     """Strip HTML tags down to plain text using a lightweight regex (no BeautifulSoup dependency).
 
     Real job postings routinely contain entities (&amp;, &hellip;, &rarr;, ...)
-    for characters like &, ..., ->  - unescape those before stripping tags so
-    they render as the real character instead of literal entity text (matches
-    job_discovery.py's _clean_html, which does the same for the ATS-API path).
+    for characters like &, ..., ->  - unescape those AFTER stripping tags, not
+    before (matches job_discovery.py's _clean_html, which does the same for
+    the ATS-API path).
+
+    Confirmed live against a real Recruitee posting: a large SPA embeds its
+    entire hydration payload as one JSON blob in a single tag's attribute,
+    e.g. <div data-props="{&quot;appConfig&quot;:...}">, correctly
+    HTML-escaped so it contains no literal `<`/`>` of its own. Unescaping
+    BEFORE running _HTML_TAG_RE turns every &quot; back into a literal `"`
+    - harmless on its own, but the multi-hundred-KB JSON string frequently
+    contains a literal `>` somewhere inside a nested value (a job
+    description mentioning "C++", a comparison operator, anything) once
+    unescaped. _HTML_TAG_RE's lazy match then stops at THAT `>` instead of
+    the tag's real closing one, truncating the match far short and leaking
+    the rest of the (still attribute-quoted, no-longer-safely-escaped) JSON
+    straight into the "stripped" output as literal text. Stripping first
+    keeps every entity in its multi-character &word; form - containing no
+    raw `<`/`>` by construction - for as long as the tag-matching regex is
+    still running, so it can't be confused by an attribute's escaped
+    contents no matter how large or unusual.
     """
     without_script_style = _SCRIPT_STYLE_RE.sub(" ", raw_html)
-    text = _HTML_TAG_RE.sub(" ", html_lib.unescape(without_script_style))
+    text = _HTML_TAG_RE.sub(" ", without_script_style)
     # Collapse excess whitespace left behind by stripped tags/newlines.
-    return re.sub(r"\s+", " ", text).strip()
+    return html_lib.unescape(re.sub(r"\s+", " ", text).strip())
 
 
 async def _fetch_via_browser(url: str) -> tuple[str, bool]:
