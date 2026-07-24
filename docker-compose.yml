@@ -151,32 +151,20 @@ services:
       context: ./apps/browser-worker
       dockerfile: Dockerfile
     container_name: job_automation_browser_worker
+    network_mode: "host"
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-job_automation}
-      API_URL: http://api:8000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@127.0.0.1:5432/${POSTGRES_DB:-job_automation}
+      API_URL: http://127.0.0.1:8001
       AI_PROVIDER: ${AI_PROVIDER:-mock}
       PYTHONPATH: /backend
       HEADLESS: ${HEADLESS:-true}
-      # Unset by default: BrowserWorker launches a fresh local throwaway
-      # browser per run, exactly as before this existed. Set to a
-      # privately-reachable CDP http:// base (never a bare public
-      # host:port) to instead drive a persistent, already-authenticated
-      # remote Chrome instance - see BrowserWorker._acquire_browser_and_context
-      # and BROWSER_CDP_URL's comment in .env.example for why http:// (not a
-      # hardcoded ws://.../devtools/browser/<uuid>) is the form to use.
       BROWSER_CDP_URL: ${BROWSER_CDP_URL:-}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env - see .env.example}
-      MINIO_ENDPOINT: minio:9000
+      MINIO_ENDPOINT: localhost:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BROWSER_BUCKET: ${MINIO_BROWSER_BUCKET:-browser-artifacts}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set in .env - see .env.example}
-    # Lets BROWSER_CDP_URL use host.docker.internal to reach a Chrome
-    # instance running directly on the host (e.g. Hermes's systemd-managed
-    # Chrome) - Docker for Mac/Windows already resolves this automatically,
-    # this extra_hosts entry is what makes it resolve on Linux too.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./apps/browser-worker:/app
       - ./backend:/backend:ro
@@ -188,8 +176,6 @@ services:
         condition: service_started
       minio:
         condition: service_healthy
-    networks:
-      - job_automation_network
 
   # Mock ATS Site (for testing - not required in a real deployment, but has
   # no external dependencies of its own so it's harmless to leave running)

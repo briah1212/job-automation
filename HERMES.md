@@ -19,8 +19,38 @@ browser. Dense index, not a tutorial - follow the links.
   http://-base form survives a Chrome restart (confirmed by
   `test_cdp_url_survives_a_chrome_restart_when_using_the_http_base_form`).
   See [test run log](#).
-- Not started: credential-vault auth model change, agent-driven manual-intervention
-  pause points (see "Not yet done" below).
+- **Done: Real persistent-profile proof (2026-07-24).** A one-off script
+  connecting via `connect_over_cdp` to `BROWSER_CDP_URL` (set to
+  `http://localhost:9223` via the host's cdp-bridge service) confirmed:
+  - 1 existing context (the persistent profile)
+  - 146 cookies in that context
+  - Navigating to myaccount.google.com showed the signed-in account
+    ("brianhsu1212" visible), no login prompt — real proof the persistent
+    profile is being used, not a throwaway. See
+  - After cleanup: original tab untouched (ownership-scoped cleanup
+    confirmed).
+- **Done: Real E2E run through the persistent browser (2026-07-24).**
+  Triggered `BrowserWorker.run()` via the API
+  (`POST /applications/{id}/start-browser`) against the mock ATS
+  (`Senior Data Engineer` at `Mock Company Inc.`). The browser-worker:
+  1. Connected to the persistent Chrome via CDP bridge ✓
+  2. Opened a new tab in the shared context ✓
+  3. Navigated to the mock ATS and navigated the multi-stage form ✓
+  4. Filled form fields ✓
+  5. Paused at `waiting_user_input / manual_intervention` (natural
+     stop-before-submit point) ✓
+  6. Tab cleanup deferred (the tab stays open for the human to resume
+     from) — ownership-scoped cleanup only closes tabs at task end; a
+     paused task intentionally leaves the tab open.
+- **Built: manual-intervention notifier (2026-07-24).** A Python script
+  (`hermes/poll_paused_apps.py`) polls `GET /applications` filtered for
+  `pipeline_status=waiting_user_input` and Telegram-alerts when paused
+  apps are found. Runs as a Hermes no-agent cron job (`poll_paused_apps.py`,
+  every 5 minutes). The Telegram bot token and chat ID are your own secrets
+  (not in this repo). The script currently exits silently when nothing is
+  paused.
+- Not started: credential-vault auth model change (see "Not yet done"
+  below).
 
 ## Hermes facts (confirmed by Brian/Hermes directly, 2026-07-24)
 
@@ -169,13 +199,11 @@ The pause/resume API a future agent would call instead of a human:
   `BROWSER_CDP_URL=http://host.docker.internal:9222` is the correct form.
   Verified by running all 4 CDP connectivity tests against the actual Chrome
   instance (`docker compose exec -e BROWSER_CDP_URL=http://host.docker.internal:9222 browser-worker python -m pytest tests/test_worker_cdp_connection.py -v` — 4/4 passed).
-- **Manual-intervention mechanism** — **Not built. Decision recorded 2026-07-24**:
-  polling+Telegram cron remains the leading option. A Hermes cron job would
-  poll the API's `browser-status` endpoint (or the browser-worker's DB table)
-  at a configurable interval and deliver a Telegram alert when a pause reason
-  (`CAPTCHA`, `MFA`, `EMAIL_VERIFICATION`, `UNSUPPORTED_FLOW`, `REPEATED_FAILURE`,
-  `USER_REVIEW`) transitions from empty to set. The human resolves via SSH/VNC.
-  Not yet implemented — nothing polls or alerts yet.
+- **Manual-intervention mechanism** — **Built 2026-07-24**: polling+Telegram cron.
+  Script at `hermes/poll_paused_apps.py` polls `GET /applications` every 5 minutes,
+  filters for `pipeline_status=waiting_user_input`, and Telegram-alerts. Requires
+  `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` env vars set in Hermes's environment
+  (not in this repo). Runs as a Hermes no-agent cron job. Silent when nothing is paused.
 - Whose identity is logged into Hermes's persistent Chrome profile — presumably
   Brian's own, consistent with this being a single-user platform (README.md),
   but never stated explicitly.

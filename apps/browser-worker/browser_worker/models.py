@@ -61,7 +61,7 @@ class Checkpoint(BaseModel):
     timestamp: datetime
     step: str
     url: str
-    screenshot_path: str
+    screenshot_path: str | None = None  # None when MinIO upload fails (host-networking mode, etc.)
     filled_fields: dict
     form_state: dict
     page_number: int
