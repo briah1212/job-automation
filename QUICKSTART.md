@@ -12,6 +12,10 @@ This creates `.env` from `.env.example` with freshly generated random secrets
 (if `.env` doesn't already exist), builds every image, and starts the full
 stack.
 
+Deploying to Hermes specifically (a persistent, already-logged-in remote
+Chrome instance, not just "any remote server")? See [HERMES.md](./HERMES.md)
+after this section - it covers the `BROWSER_CDP_URL` piece this doc doesn't.
+
 ## Remote server (e.g. a Hermes agent server)
 
 Same as above, but pass the server's actual address so the frontend is built

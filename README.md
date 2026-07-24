@@ -91,6 +91,8 @@ per-service. Key variables:
 
 ## Documentation
 
+Integrating with a persistent remote browser (Hermes)? See [HERMES.md](./HERMES.md).
+
 See docs/ for detailed guides on:
 - Architecture decisions
 - Database schema
