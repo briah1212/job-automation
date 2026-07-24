@@ -147,7 +147,23 @@ async def resolve_field_value(field: FormField, ctx: RunContext, app_data_dict: 
 
     logger.info(f"No deterministic mapping for required field {field.name} ({field.label}) - asking ApplicationQuestionAgent")
     try:
-        answer = await answer_question(user_id=ctx.user_id, question_text=field.label)
+        # Confirmed live against a real Pinpoint posting (Confluence
+        # Technologies): a field labeled "Town" has no FieldMapper rule
+        # (only "city" was covered, not this common synonym - see the
+        # rule added alongside this fix) and fell all the way through to
+        # this AI-generated path, which produced a full 1-3 sentence
+        # personal-summary-style answer ("Brian Hsu, email
+        # hsubrian1212@gmail.com, phone 646-236-7795, LinkedIn...") into
+        # what needed to be a single town/city name. The agent's prompt
+        # had no way to know this was a single-line text field expecting
+        # a short value rather than an open-ended question expecting
+        # prose - textarea is the one input_type on a real form that
+        # actually invites a multi-sentence answer.
+        answer = await answer_question(
+            user_id=ctx.user_id,
+            question_text=field.label,
+            expects_short_answer=field.input_type != "textarea",
+        )
     except DynamicQuestionsError as exc:
         logger.error(f"Dynamic question lookup failed for {field.name}: {exc}")
         ctx.pending_question = {

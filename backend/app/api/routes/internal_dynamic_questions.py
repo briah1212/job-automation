@@ -25,6 +25,7 @@ class AnswerQuestionRequest(BaseModel):
     question_text: str
     question_type: str = ""
     risk_level: str = ""
+    expects_short_answer: bool = False
 
 
 @router.post("/answer")
@@ -52,6 +53,7 @@ async def answer_question(
         profile_facts=profile_facts,
         reusable_answers=reusable_answers,
         user_id=body.user_id,
+        expects_short_answer=body.expects_short_answer,
     )
     result["question_type"] = question_type
     result["risk_level"] = risk_level

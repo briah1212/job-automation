@@ -223,3 +223,61 @@ class TestApplicationQuestionAgent:
             )
         assert result["needs_user_input"] is False
         assert result["answer_text"] == "San Francisco, California"
+
+    @pytest.mark.asyncio
+    async def test_expects_short_answer_changes_the_prompt_length_instruction(self):
+        """CRITICAL, confirmed live against a real Pinpoint posting
+        (Confluence Technologies): a field labeled "Town" (no FieldMapper
+        rule covered it - see the fix in field_mapper.py) reached this
+        AI-generated path, and the blanket "Keep the answer concise
+        (1-3 sentences)" instruction produced a full personal-summary-
+        style paragraph for what needed to be a single town name.
+        expects_short_answer=True must swap in a short-value instruction
+        instead."""
+        captured_prompt = {}
+
+        async def _capture_prompt(prompt, **kwargs):
+            captured_prompt["value"] = prompt
+            return "Ann Arbor"
+
+        with patch(
+            "app.ai_gateway.gateway.AIGateway.generate_text",
+            new=AsyncMock(side_effect=_capture_prompt),
+        ):
+            agent = ApplicationQuestionAgent()
+            result = await agent.generate_answer(
+                question_text="Town",
+                question_type="personal_info",
+                risk_level="medium",
+                profile_facts=[],
+                reusable_answers=[],
+                user_id=str(uuid4()),
+                expects_short_answer=True,
+            )
+        assert result["answer_text"] == "Ann Arbor"
+        assert "short phrase or single value" in captured_prompt["value"]
+        assert "1-3 sentences" not in captured_prompt["value"]
+
+    @pytest.mark.asyncio
+    async def test_expects_short_answer_false_keeps_the_original_prompt(self):
+        captured_prompt = {}
+
+        async def _capture_prompt(prompt, **kwargs):
+            captured_prompt["value"] = prompt
+            return "A longer, open-ended answer."
+
+        with patch(
+            "app.ai_gateway.gateway.AIGateway.generate_text",
+            new=AsyncMock(side_effect=_capture_prompt),
+        ):
+            agent = ApplicationQuestionAgent()
+            await agent.generate_answer(
+                question_text="Tell us about yourself",
+                question_type="personal_info",
+                risk_level="medium",
+                profile_facts=[],
+                reusable_answers=[],
+                user_id=str(uuid4()),
+                expects_short_answer=False,
+            )
+        assert "1-3 sentences" in captured_prompt["value"]

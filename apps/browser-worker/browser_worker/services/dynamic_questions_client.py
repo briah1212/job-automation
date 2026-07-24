@@ -15,7 +15,7 @@ class DynamicQuestionsError(Exception):
     """Raised when the internal dynamic-questions endpoint call fails."""
 
 
-async def answer_question(user_id: str, question_text: str) -> Dict[str, Any]:
+async def answer_question(user_id: str, question_text: str, expects_short_answer: bool = False) -> Dict[str, Any]:
     """Ask the backend to answer a field browser-worker couldn't map on its own.
 
     Returns the same shape ApplicationQuestionAgent.generate_answer produces:
@@ -23,13 +23,17 @@ async def answer_question(user_id: str, question_text: str) -> Dict[str, Any]:
     call (if any) happens entirely on the backend side - browser-worker never
     talks to the AI gateway directly, and this answer only ever fills a form
     field, never decides whether to submit.
+
+    expects_short_answer=True (the field isn't a <textarea>) tells the
+    agent's prompt to produce a short value, not open-ended prose - see
+    field_resolution.py's call site for why this matters.
     """
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
         try:
             response = await client.post(
                 f"{_API_URL}/api/internal/dynamic-questions/answer",
                 headers={"X-Internal-Api-Key": _INTERNAL_API_KEY},
-                json={"user_id": user_id, "question_text": question_text},
+                json={"user_id": user_id, "question_text": question_text, "expects_short_answer": expects_short_answer},
             )
             response.raise_for_status()
             return response.json()

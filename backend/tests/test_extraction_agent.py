@@ -303,6 +303,63 @@ class TestProcessExtractionTask:
         assert job.extracted_data["raw_text_length"] == len(rendered_text)
 
     @pytest.mark.asyncio
+    async def test_process_extraction_task_falls_back_when_content_is_a_react_on_rails_shell(self, db):
+        """Same shape of bug as the iCIMS iframe case above, different
+        mechanism: confirmed live against a real Pinpoint posting
+        (Confluence Technologies). The job description's actual content is
+        a React-on-Rails component, server-embedded as a JSON props blob
+        inside <script type="application/json"
+        class="js-react-on-rails-component"
+        data-component-name="External::Careerspage::Renderrichtrixcontent">,
+        only rendered into real visible DOM client-side. _strip_html
+        correctly strips that script tag's content, leaving only the
+        accordion section headings ("What skills and experience do I need
+        to succeed?") with nothing underneath - still well past
+        _THIN_CONTENT_CHARS from surrounding company boilerplate (confirmed
+        live: 1226 chars from httpx vs 6547 real chars from an actual
+        rendered browser session)."""
+        user, job = self._make_user_and_job(db)
+
+        task = WorkflowTask(
+            workflow_type="job_extraction",
+            entity_id=job.id,
+            status=WorkflowStatus.running,
+        )
+        db.add(task)
+        db.commit()
+
+        shell_html = (
+            "<html><body><nav>Site Navigation Chrome</nav>"
+            "<h3>What skills and experience do I need to succeed?</h3>"
+            + "Padding text so this clears the thin-content threshold. " * 10
+            + '<script type="application/json" class="js-react-on-rails-component" '
+            'data-component-name="External::Careerspage::Renderrichtrixcontent">'
+            '{"content": "the real job description lives here, invisible to a plain fetch"}'
+            "</script>"
+            + "</body></html>"
+        )
+        mock_response = AsyncMock()
+        mock_response.text = shell_html
+        mock_response.status_code = 200
+        mock_response.raise_for_status = lambda: None
+
+        rendered_text = (
+            "Software Engineer at Confluence Technologies. " + "Real job description content. " * 10
+        )
+
+        with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)), \
+                patch("worker._fetch_via_browser", new=AsyncMock(return_value=(rendered_text, True))):
+            await process_extraction_task(task, db)
+            db.commit()
+
+        db.refresh(job)
+        db.refresh(task)
+
+        assert task.status == WorkflowStatus.completed
+        assert not job.extracted_data.get("fetch_warning")
+        assert job.extracted_data["raw_text_length"] == len(rendered_text)
+
+    @pytest.mark.asyncio
     async def test_process_extraction_task_preserves_authoritative_company_and_title(self, db):
         """A job discovered via a company watch already has real company/
         title/location straight from the ATS's own API - the extraction

@@ -73,6 +73,7 @@ class ApplicationQuestionAgent(BaseAgent):
         profile_facts: List[ProfileFact],
         reusable_answers: List[ReusableAnswer],
         user_id: str,
+        expects_short_answer: bool = False,
     ) -> Dict[str, Any]:
         """Generate an answer for a single application question, following precedence order."""
 
@@ -123,12 +124,27 @@ class ApplicationQuestionAgent(BaseAgent):
         facts_used = profile_facts
         facts_block = "\n".join(f"- {fact.content}" for fact in facts_used) or "(no verified facts available)"
 
+        # Confirmed live against a real Pinpoint posting (Confluence
+        # Technologies): a field labeled "Town" reached this path (no
+        # FieldMapper rule covered it) and the blanket "1-3 sentences"
+        # instruction produced a full personal-summary-style answer
+        # ("Brian Hsu, email hsubrian1212@gmail.com, phone 646-236-7795,
+        # LinkedIn...") for what needed to be a single town/city name.
+        # expects_short_answer (field.input_type != "textarea", set by the
+        # caller) tells the model this is a single-line field expecting a
+        # short value, not an open-ended question inviting prose.
+        length_instruction = (
+            "Keep the answer to a short phrase or single value (a few words at most) "
+            "suitable for a single-line text field - not a full sentence."
+            if expects_short_answer
+            else "Keep the answer concise (1-3 sentences)."
+        )
         prompt = (
             "You are helping a job applicant answer a job application question.\n"
             "Answer ONLY using the verified facts listed below. Never invent, assume, "
             "or embellish information that is not present in these facts. If the facts "
             "do not contain enough information to answer, say so briefly.\n"
-            "Keep the answer concise (1-3 sentences).\n\n"
+            f"{length_instruction}\n\n"
             f"Question: {question_text}\n\n"
             f"Verified facts:\n{facts_block}\n\n"
             "Answer:"

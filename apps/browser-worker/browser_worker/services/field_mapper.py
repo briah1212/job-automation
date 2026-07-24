@@ -75,6 +75,14 @@ class FieldMapper:
             (r"motivation", "interest"),
             (r"address", "address"),
             (r"city", "city"),
+            # Confirmed live against a real Pinpoint posting (Confluence
+            # Technologies): a real field labeled exactly "Town" - a common
+            # synonym for "city" (British/international usage) - had no
+            # matching rule here at all, fell all the way through to the
+            # AI-generated-answer path (see application_question_agent.py's
+            # expects_short_answer), and got filled with a full personal-
+            # summary-style paragraph instead of a town name.
+            (r"town", "city"),
             (r"state", "state"),
             (r"zip", "zip_code"),
             (r"postal", "zip_code"),

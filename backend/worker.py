@@ -80,7 +80,26 @@ _SCRIPT_STYLE_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE 
 # location) while still reporting fetch_succeeded=True. Checked against the
 # UNSTRIPPED raw HTML (the marker is inside a script/iframe src attribute
 # that _strip_html would otherwise remove).
-_IFRAME_CONTENT_SHELL_MARKERS = ("icims_content_iframe",)
+#
+# "Renderrichtrixcontent" confirmed live against a real Pinpoint posting
+# (Confluence Technologies): the same shape of bug, different mechanism -
+# Pinpoint's job description sections ("What skills and experience do I
+# need to succeed?", etc.) are React-on-Rails components, server-embedded
+# as a JSON props blob inside <script type="application/json"
+# class="js-react-on-rails-component"
+# data-component-name="External::Careerspage::Renderrichtrixcontent">,
+# only rendered into real visible DOM client-side. _SCRIPT_STYLE_RE
+# correctly strips that script tag's content (as it should - it's not
+# meant to be read as page text), but that leaves ONLY the accordion
+# section headings with nothing underneath them, still well past
+# _THIN_CONTENT_CHARS from surrounding company boilerplate (confirmed
+# live: 1226 chars from httpx vs 6547 real chars from an actual rendered
+# browser session). Deliberately matching the specific component name
+# ("Renderrichtrixcontent" - the rich-text job description itself), not
+# the generic "js-react-on-rails-component" wrapper class, which is a
+# common React-on-Rails marker that could appear around many components
+# unrelated to the job description's actual content.
+_CONTENT_SHELL_MARKERS = ("icims_content_iframe", "Renderrichtrixcontent")
 
 
 def _strip_html(raw_html: str) -> str:
@@ -170,14 +189,14 @@ async def _fetch_raw_text(url: str) -> tuple[str, bool]:
         raw_html = ""
         text = ""
 
-    is_iframe_content_shell = any(marker in raw_html for marker in _IFRAME_CONTENT_SHELL_MARKERS)
+    is_content_shell = any(marker in raw_html for marker in _CONTENT_SHELL_MARKERS)
 
-    if len(text) >= _THIN_CONTENT_CHARS and not is_iframe_content_shell:
+    if len(text) >= _THIN_CONTENT_CHARS and not is_content_shell:
         return text, True
 
     logger.info(
         "Plain HTTP fetch for %s returned %d chars%s - falling back to browser render",
-        url, len(text), " (iframe content shell)" if is_iframe_content_shell else "",
+        url, len(text), " (content shell)" if is_content_shell else "",
     )
     rendered_text, rendered_success = await _fetch_via_browser(url)
     if rendered_success:

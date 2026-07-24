@@ -628,6 +628,28 @@ class GenericAdapter(ATSAdapter):
                 if error:
                     return error
             elif field.input_type == "checkbox":
+                # KNOWN GAP, NOT root-caused here: confirmed live against a
+                # real Pinpoint posting (Confluence Technologies), a
+                # required consent checkbox ("Allow us to process your
+                # personal information") remained visibly unchecked in a
+                # later checkpoint screenshot despite an "answered_question"
+                # cycle resolving "Yes" for it (which should reach this
+                # branch and call page.check()). A plain page.check()/
+                # manual click on the same live checkbox worked correctly
+                # in isolation, so the checkbox itself isn't the problem -
+                # something about the field/selector identity between when
+                # the question was asked and when this code re-resolves and
+                # re-fills it is the more likely suspect (matches this
+                # site's earlier-confirmed pattern of using fully
+                # client-rendered, possibly re-mounted form sections - see
+                # this file's Rippling/aria-labelledby comment for a
+                # related but distinct labeling issue on the same class of
+                # site). The run correctly stalled and escalated rather
+                # than reporting false success, so this didn't risk a
+                # submission with a missing required consent - left as an
+                # observed, not-yet-root-caused gap rather than guessing at
+                # a fix without being able to reproduce the exact failure
+                # live.
                 if str(value).strip().lower() in ("true", "1", "yes", "on"):
                     await page.check(selector)
                 else:
