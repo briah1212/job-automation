@@ -20,7 +20,7 @@ from playwright.async_api import async_playwright
 from browser_worker.models import ApplicationData
 from browser_worker.worker import BrowserWorker
 
-MOCK_ATS_URL = os.environ.get("MOCK_ATS_URL", "http://mock-ats:8080")
+MOCK_ATS_URL = os.environ.get("MOCK_ATS_URL", "http://localhost:8080")
 _RUN_ID = uuid.uuid4().hex[:12]
 
 

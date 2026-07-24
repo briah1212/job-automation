@@ -1,5 +1,5 @@
 """Live tests against the mock-ats fixture (requires MOCK_ATS_URL reachable,
-default http://mock-ats:8080 inside docker-compose, http://localhost:8080
+# default http://localhost:8080
 when run on the host). Replaces the pre-state-machine test_adapters.py, which
 referenced BrowserWorker.process_application/resume_from_checkpoint (removed
 in the Phase 3 refactor) and assumed the old single-stage fixture layout

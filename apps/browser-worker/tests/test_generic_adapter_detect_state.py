@@ -16,7 +16,7 @@ from playwright.async_api import async_playwright
 from browser_worker.adapters.generic_adapter import GenericAdapter
 from browser_worker.state import BrowserState
 
-MOCK_ATS_URL = os.environ.get("MOCK_ATS_URL", "http://mock-ats:8080")
+MOCK_ATS_URL = os.environ.get("MOCK_ATS_URL", "http://localhost:8080")
 
 # server.py's account store is a real, process-lifetime dict (deliberately -
 # it's what makes credential-reuse actually testable) - a second signup
