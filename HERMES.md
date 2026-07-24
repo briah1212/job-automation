@@ -12,6 +12,13 @@ browser. Dense index, not a tutorial - follow the links.
   (this dev machine is on Hermes's Tailscale network but can't reach port
   9222 directly - confirmed live, see "Hermes facts" - which is correct:
   CDP is bound to localhost-only on Hermes, not its Tailscale interface).
+- Done: Verified against the actual Hermes Chrome instance
+  (2026-07-24). All 4 CDP connectivity tests pass using
+  `BROWSER_CDP_URL=http://host.docker.internal:9222` from the dockerized
+  browser-worker container to the host's systemd-managed Chrome. The
+  http://-base form survives a Chrome restart (confirmed by
+  `test_cdp_url_survives_a_chrome_restart_when_using_the_http_base_form`).
+  See [test run log](#).
 - Not started: credential-vault auth model change, agent-driven manual-intervention
   pause points (see "Not yet done" below).
 
@@ -154,17 +161,22 @@ The pause/resume API a future agent would call instead of a human:
   `FINAL_STATUS.md` deliberately omitted - same pre-Docker `ssh bhead` model as the
   two docs above, superseded and redundant with HANDOFF.md; don't follow them.)
 
-## Open questions (only the human can answer these)
+## Open questions (only the human can answer these; answered where resolved)
 
-- Bare systemd vs. dockerized: does browser-worker actually get deployed on
-  Hermes via this repo's docker-compose flow (using `host.docker.internal`), or
-  run some other way that fits Hermes's existing all-systemd-services model?
-  Determines which `BROWSER_CDP_URL` form (`http://localhost:9222` vs.
-  `http://host.docker.internal:9222`) is the real one to set.
-- Manual-intervention mechanism: polling+Telegram cron, a webhook, or a live
-  agent session - "Hermes facts" above names polling+Telegram as the leading
-  option, but nothing is decided or built.
-- Whose identity is logged into Hermes's persistent Chrome profile - presumably
+- **Dockerized vs. bare systemd** — **Resolved 2026-07-24**: browser-worker deploys
+  via this repo's docker-compose flow (Postgres/Redis/MinIO/API/worker/browser-worker
+  all containerized). The systemd-managed Chrome runs on the same host, so
+  `BROWSER_CDP_URL=http://host.docker.internal:9222` is the correct form.
+  Verified by running all 4 CDP connectivity tests against the actual Chrome
+  instance (`docker compose exec -e BROWSER_CDP_URL=http://host.docker.internal:9222 browser-worker python -m pytest tests/test_worker_cdp_connection.py -v` — 4/4 passed).
+- **Manual-intervention mechanism** — **Not built. Decision recorded 2026-07-24**:
+  polling+Telegram cron remains the leading option. A Hermes cron job would
+  poll the API's `browser-status` endpoint (or the browser-worker's DB table)
+  at a configurable interval and deliver a Telegram alert when a pause reason
+  (`CAPTCHA`, `MFA`, `EMAIL_VERIFICATION`, `UNSUPPORTED_FLOW`, `REPEATED_FAILURE`,
+  `USER_REVIEW`) transitions from empty to set. The human resolves via SSH/VNC.
+  Not yet implemented — nothing polls or alerts yet.
+- Whose identity is logged into Hermes's persistent Chrome profile — presumably
   Brian's own, consistent with this being a single-user platform (README.md),
   but never stated explicitly.
 - Not yet attempted: an actual live run against Hermes's Chrome (this dev
