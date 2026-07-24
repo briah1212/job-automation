@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 
 
@@ -6,6 +6,22 @@ class ExtractedJob(BaseModel):
     company: str
     title: str
     location: Optional[str] = None
+
+    @field_validator("company", "title", mode="before")
+    @classmethod
+    def _coerce_none_to_empty_string(cls, value):
+        """Confirmed live: fed with a page whose only real content was
+        "This job is no longer available" (an expired posting - correctly
+        nothing to extract, not a bug), the model honestly returned null
+        for both required fields instead of hallucinating a fake company/
+        title. That's the right thing for it to do, but validating a
+        required `str` against None raised an uncaught ValidationError
+        that crashed the entire extraction task instead of leaving the job
+        gracefully unresolved (worker.py already handles an empty
+        company/title correctly - see process_extraction_task's `if
+        job.company and job.title` gate - it just needs to actually reach
+        that check instead of crashing first)."""
+        return "" if value is None else value
     remote_policy: Optional[str] = None
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
